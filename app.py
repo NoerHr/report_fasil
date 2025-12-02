@@ -9,130 +9,113 @@ import numpy as np
 from PIL import Image
 
 # ==========================================
-# 1. UI CONFIGURATION (NEO-FRESH THEME)
+# 1. UI CONFIGURATION (CYBERPUNK GLASS)
 # ==========================================
-st.set_page_config(page_title="Admin Kelas Pro", layout="wide", page_icon="🚀")
+st.set_page_config(page_title="Admin Kelas Pro", layout="wide", page_icon="⚡")
 
 def local_css():
     st.markdown("""
     <style>
-    /* IMPORT FONT (Inter & Poppins) */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Poppins:wght@500;700&display=swap');
+    /* IMPORT FONT FUTURISTIK */
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&display=swap');
 
-    /* BACKGROUND UTAMA - FRESH & CLEAN */
-    .stApp {
-        background-color: #f8f9fa;
-        background-image: 
-            radial-gradient(at 0% 0%, hsla(253,16%,93%,1) 0, transparent 50%), 
-            radial-gradient(at 50% 0%, hsla(225,39%,93%,1) 0, transparent 50%), 
-            radial-gradient(at 100% 0%, hsla(339,49%,93%,1) 0, transparent 50%);
-        color: #1f2937;
-        font-family: 'Inter', sans-serif;
+    html, body, [class*="css"] {
+        font-family: 'Outfit', sans-serif;
     }
 
-    /* HEADER */
-    h1, h2, h3 {
-        font-family: 'Poppins', sans-serif;
-        color: #111827;
-        font-weight: 700;
+    /* BACKGROUND DEEP VOID */
+    .stApp {
+        background-color: #050505;
+        background-image: 
+            radial-gradient(at 10% 10%, rgba(80, 20, 200, 0.15) 0px, transparent 50%),
+            radial-gradient(at 90% 90%, rgba(0, 200, 255, 0.15) 0px, transparent 50%);
+        color: #e0e0e0;
+    }
+
+    /* SIDEBAR GLASS */
+    section[data-testid="stSidebar"] {
+        background-color: rgba(15, 15, 20, 0.7);
+        backdrop-filter: blur(20px);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    /* GLASS CARD (THE COOL PART) */
+    .cyber-card {
+        background: rgba(30, 30, 40, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 25px;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        margin-bottom: 20px;
+        transition: all 0.3s ease;
     }
     
-    .main-header {
-        font-size: 3rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    .cyber-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(0, 255, 200, 0.5);
+        box-shadow: 0 0 20px rgba(0, 255, 200, 0.15);
+    }
+
+    /* HEADER GRADIENT TEXT */
+    .neon-text {
+        background: linear-gradient(90deg, #00C9FF 0%, #92FE9D 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-bottom: 5px;
+        font-weight: 800;
+        letter-spacing: 1px;
     }
 
-    /* SIDEBAR - BERSIH */
-    section[data-testid="stSidebar"] {
-        background-color: #ffffff;
-        border-right: 1px solid #e5e7eb;
-        box-shadow: 4px 0 24px rgba(0,0,0,0.02);
-    }
-
-    /* CARDS (NEUMORPHISM STYLE) */
-    .fresh-card {
-        background: #ffffff;
-        border-radius: 20px;
-        padding: 30px;
-        box-shadow: 0 10px 40px -10px rgba(0,0,0,0.08);
-        border: 1px solid #f3f4f6;
-        margin-bottom: 25px;
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-    .fresh-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 20px 50px -10px rgba(0,0,0,0.12);
-        border-color: #e5e7eb;
-    }
-
-    /* INPUT FIELDS - MODERN */
+    /* INPUT FIELDS (DARKER) */
     .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox div[data-testid="stMarkdownContainer"] {
-        background-color: #f9fafb !important;
-        border: 2px solid #e5e7eb !important;
-        color: #1f2937 !important;
-        border-radius: 12px !important;
-        padding: 12px 15px;
-        font-size: 15px;
-        transition: all 0.2s;
+        background-color: rgba(0, 0, 0, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        color: #00ffc8 !important; /* Text Input Color */
+        border-radius: 10px !important;
     }
     .stTextInput input:focus, .stTextArea textarea:focus {
-        border-color: #667eea !important;
-        background-color: #ffffff !important;
-        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+        border-color: #00C9FF !important;
+        box-shadow: 0 0 10px rgba(0, 201, 255, 0.3);
     }
 
-    /* BUTTONS - GRADIENT */
+    /* BUTTONS (GLOWING) */
     div.stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(92deg, #0066ff 0%, #00ccff 100%);
         color: white;
-        font-weight: 600;
-        font-family: 'Poppins', sans-serif;
+        font-weight: 700;
         border: none;
         border-radius: 12px;
         padding: 0.8rem 2rem;
         width: 100%;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        box-shadow: 0 4px 15px rgba(118, 75, 162, 0.3);
-        transition: all 0.3s;
+        letter-spacing: 1.5px;
+        transition: 0.3s;
+        box-shadow: 0 0 15px rgba(0, 100, 255, 0.3);
     }
     div.stButton > button:hover {
         transform: scale(1.02);
-        box-shadow: 0 8px 25px rgba(118, 75, 162, 0.5);
-        color: white;
+        box-shadow: 0 0 30px rgba(0, 200, 255, 0.6);
+        color: #ffffff;
     }
 
-    /* METRICS - BIG & BOLD */
+    /* METRICS */
     div[data-testid="stMetricValue"] {
-        font-size: 36px !important;
-        font-family: 'Poppins', sans-serif;
-        background: linear-gradient(135deg, #00c6fb 0%, #005bea 100%);
+        font-size: 2.8rem !important;
+        background: linear-gradient(to bottom, #ffffff, #a0a0a0);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        font-weight: 800;
+        font-weight: 700;
+        text-shadow: 0 0 20px rgba(255,255,255,0.2);
     }
     div[data-testid="stMetricLabel"] {
-        font-size: 14px !important;
-        color: #6b7280 !important;
+        color: #00ffc8 !important;
         font-weight: 600;
-        text-transform: uppercase;
     }
 
-    /* ALERTS & INFO BOXES */
-    .stAlert {
-        background-color: #eff6ff;
-        border: 1px solid #dbeafe;
-        color: #1e40af;
-        border-radius: 12px;
-    }
-    
-    /* CODE BLOCK (COPY PASTE AREA) */
+    /* CODE BLOCK (COPY PASTE) */
     .stCodeBlock {
-        border-radius: 12px !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        background-color: #0d0d11 !important;
+        border: 1px solid #333;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -140,30 +123,82 @@ def local_css():
 local_css()
 
 # ==========================================
-# 2. FUNGSI LOGIKA (TETAP SAMA - 100% AMAN)
+# 2. LOGIC BACKEND (SMART & ROBUST)
 # ==========================================
 
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['en'], gpu=False)
 
+def extract_text_from_image(image_file):
+    reader = load_ocr()
+    img = Image.open(image_file)
+    result = reader.readtext(np.array(img), detail=0)
+    cleaned = []
+    ignore = ["participants", "chat", "share", "record", "host", "me", "mute", "unmute"]
+    for text in result:
+        t = text.strip()
+        if len(t) > 3 and not any(w in t.lower() for w in ignore):
+            t = re.sub(r'^\d+\.?\s*', '', t)
+            cleaned.append(t)
+    return "\n".join(cleaned)
+
 def load_data_smart(uploaded_file):
     try:
         if uploaded_file.name.endswith('.csv'):
             try:
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, sep=';') # Coba titik koma
+                df = pd.read_csv(uploaded_file, sep=';')
                 if len(df.columns) < 2: raise Exception
             except:
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, sep=',') # Coba koma
+                df = pd.read_csv(uploaded_file, sep=',')
         else:
             df = pd.read_excel(uploaded_file)
-        
-        # Bersihkan nama kolom
-        df.columns = [str(c).strip() for c in df.columns]
+        df.columns = [str(c).strip().title() for c in df.columns]
         return df
     except: return None
+
+def parse_data_template(text):
+    data = {}
+    jam_match = re.search(r'(\d{1,2}[\.:]\d{2})\s?-\s?(\d{1,2}[\.:]\d{2})', text)
+    if jam_match:
+        data['jam_mulai'] = jam_match.group(1).replace(':', '.') 
+        data['jam_full'] = jam_match.group(0).replace('.', ':')
+        parts = text.split(jam_match.group(0))
+        
+        # Fasil Logic
+        raw_prefix = parts[0].strip()
+        days = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+        fasil_clean = raw_prefix
+        for day in days:
+            if fasil_clean.lower().startswith(day.lower()):
+                fasil_clean = fasil_clean[len(day):].strip(); break
+        data['fasilitator'] = fasil_clean if fasil_clean else "Fasilitator"
+        sisa = parts[1] if len(parts) > 1 else text
+    else:
+        data['jam_mulai'] = "00.00"; data['jam_full'] = "00:00 - 00:00"; data['fasilitator'] = "Fasil"; sisa = text
+
+    kode_match = re.search(r'([A-Za-z]{2,}\d{1,3})', sisa)
+    if kode_match:
+        data['kode_kelas'] = kode_match.group(1)
+        parts_kode = sisa.split(data['kode_kelas'])
+        data['matkul'] = parts_kode[0].strip()
+        
+        raw_dosen = parts_kode[1]
+        clean_dosen = re.split(r'(\d{2}[A-Za-z]|\d{2}\s|Reg|Pro|Sulawesi|Bali|Java|Sumatera|Papua|Pertemuan)', raw_dosen, flags=re.IGNORECASE)[0]
+        data['dosen'] = clean_dosen.strip().strip(",").strip()
+    else:
+        data['kode_kelas'] = "KODE"; data['matkul'] = "Matkul"; data['dosen'] = "Dosen"
+
+    pertemuan_match = re.search(r'Pertemuan\s?([\d\s&,-]+)', text, re.IGNORECASE)
+    data['pertemuan_str'] = pertemuan_match.group(1).strip() if pertemuan_match else "1"
+    
+    types = []
+    if re.search(r'Reguler|Reg', text, re.IGNORECASE): types.append("Reguler")
+    if re.search(r'Profesional|Pro', text, re.IGNORECASE): types.append("Profesional")
+    data['tipe_str'] = " & ".join(types) if types else "Reguler"
+    return data
 
 def clean_nama_zoom(nama_raw):
     if not isinstance(nama_raw, str): return ""
@@ -197,57 +232,7 @@ def to_excel_download(df):
             worksheet.set_column(i, i, width)
     return output.getvalue()
 
-def extract_text_from_image(image_file):
-    reader = load_ocr()
-    img = Image.open(image_file)
-    result = reader.readtext(np.array(img), detail=0)
-    cleaned = []
-    ignore = ["participants", "chat", "share", "record", "host", "me", "mute"]
-    for text in result:
-        t = text.strip()
-        if len(t) > 3 and not any(w in t.lower() for w in ignore):
-            cleaned.append(re.sub(r'^\d+\.?\s*', '', t))
-    return "\n".join(cleaned)
-
-def parse_data_template(text):
-    data = {}
-    jam_match = re.search(r'(\d{1,2}[\.:]\d{2})\s?-\s?(\d{1,2}[\.:]\d{2})', text)
-    if jam_match:
-        data['jam_mulai'] = jam_match.group(1).replace(':', '.')
-        data['jam_full'] = jam_match.group(0).replace('.', ':')
-        parts = text.split(jam_match.group(0))
-        raw_prefix = parts[0].strip()
-        days = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
-        fasil_clean = raw_prefix
-        for day in days:
-            if fasil_clean.lower().startswith(day.lower()):
-                fasil_clean = fasil_clean[len(day):].strip(); break
-        data['fasilitator'] = fasil_clean if fasil_clean else "Fasilitator"
-        sisa = parts[1] if len(parts) > 1 else text
-    else:
-        data['jam_mulai'] = "00.00"; data['jam_full'] = "00:00 - 00:00"; data['fasilitator'] = "Fasilitator"; sisa = text
-
-    kode_match = re.search(r'([A-Za-z]{2,}\d{1,3})', sisa)
-    if kode_match:
-        data['kode_kelas'] = kode_match.group(1)
-        parts_kode = sisa.split(data['kode_kelas'])
-        data['matkul'] = parts_kode[0].strip()
-        raw_dosen = parts_kode[1]
-        clean_dosen = re.split(r'(\d{2}[A-Za-z]|\d{2}\s|Reg|Pro|Sulawesi|Bali|Java|Sumatera|Papua|Pertemuan)', raw_dosen, flags=re.IGNORECASE)[0]
-        data['dosen'] = clean_dosen.strip().strip(",").strip()
-    else:
-        data['kode_kelas'] = "KODE"; data['matkul'] = "Matkul"; data['dosen'] = "Dosen"
-
-    pertemuan_match = re.search(r'Pertemuan\s?([\d\s&,-]+)', text, re.IGNORECASE)
-    data['pertemuan_str'] = pertemuan_match.group(1).strip() if pertemuan_match else "1"
-    
-    types = []
-    if re.search(r'Reguler|Reg', text, re.IGNORECASE): types.append("Reguler")
-    if re.search(r'Profesional|Pro', text, re.IGNORECASE): types.append("Profesional")
-    data['tipe_str'] = " & ".join(types) if types else "Reguler"
-    return data
-
-# GENERATOR
+# --- GENERATORS ---
 def generate_laporan_sprint(info, stats):
     tasks = ["Reminder H-1", "Dosen Hadir", "Host Claim", "Absensi", "Recording", "Upload GDrive", "Laporan Sistem", "Update Feedback"]
     return pd.DataFrame({"No": range(1,len(tasks)+1), "Task": tasks, "Status": ["v"]*len(tasks), "Ket": ["Done"]*len(tasks)})
@@ -260,12 +245,12 @@ def generate_presensi(db, hadir, fb, info):
     df = db.copy()
     col = [c for c in df.columns if "Nama" in c][0]
     for i in range(1, 17): df[f'Sesi {i}'] = ""
-    target = get_session_list(info['pertemuan'])
+    target_sessions = get_session_list(info['pertemuan'])
     for idx, r in df.iterrows():
         n = str(r[col])
         code = "A"
         if n in hadir: code = "O" if n in fb else "OF"
-        for s in target: 
+        for s in target_sessions:
             if 1 <= s <= 16: df.at[idx, f'Sesi {s}'] = code
     return df
 
@@ -274,18 +259,17 @@ def generate_gaji(info, fee, filename):
     return pd.DataFrame([{"Tanggal": info['tgl'], "Dosen": info['dosen'], "Matkul": info['matkul'], "Kode": info['kode'], "Sesi": info['pertemuan'], "Jml": jml, "Fee": fee, "Total": fee*jml, "Bukti": filename}])
 
 # ==========================================
-# 4. USER INTERFACE
+# 4. DASHBOARD UI
 # ==========================================
 
-st.markdown('<h1 class="main-header">🚀 Admin Kelas Pro</h1>', unsafe_allow_html=True)
-st.markdown("#### *Cepat, Akurat, dan Anti-Ngantuk!*")
+st.markdown('<h1 class="neon-text">⚡ ADMIN KELAS PRO</h1>', unsafe_allow_html=True)
 st.write("")
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.markdown("### ⚙️ Control Panel")
+    st.markdown("### 🎛️ Control Center")
     
-    mode_input = st.radio("Sumber Data:", ["✍️ Manual Paste", "📂 Database Excel"])
+    mode_input = st.radio("Input Mode:", ["✍️ Manual Paste", "📂 Database Excel"])
     defaults = {"jam_mulai":"00.00", "jam_full":"00:00-00:00", "matkul":"", "dosen":"", "kode":"", "tipe":["Reguler"], "fasil": "Fasil"}
     
     if mode_input == "✍️ Manual Paste":
@@ -298,18 +282,16 @@ with st.sidebar:
             if 'fasilitator' in parsed: defaults['fasil'] = parsed['fasilitator']
             
     elif mode_input == "📂 Database Excel":
-        st.info("💡 Upload file `Database_Jadwal.xlsx`")
-        up_db = st.file_uploader("", type=['xlsx', 'xls', 'csv'])
+        up_db = st.file_uploader("Upload Jadwal (.xlsx)", type=['xlsx', 'xls', 'csv'])
         if up_db:
             df_db = load_data_smart(up_db)
             if df_db is not None:
-                # Kolom fleksibel
+                # Flexible Columns
                 col_fasil = next((c for c in df_db.columns if 'fasil' in c.lower()), '')
                 col_kode = next((c for c in df_db.columns if 'kode' in c.lower()), '')
                 col_matkul = next((c for c in df_db.columns if 'mata' in c.lower()), '')
-                
-                # Gunakan kolom label yang sudah ada di file excel jika ada
                 col_label = next((c for c in df_db.columns if 'label' in c.lower()), '')
+                
                 if not col_label and col_kode:
                     df_db['Label_Gen'] = df_db.apply(lambda x: f"{x.get(col_fasil, '')} - {x.get(col_matkul,'?')}", axis=1)
                     col_label = 'Label_Gen'
@@ -326,7 +308,7 @@ with st.sidebar:
                     defaults['tipe'] = [t.strip() for t in str(row.get('Tipe', 'Reguler')).split(',')]
 
     st.markdown("---")
-    st.markdown("### 📝 Edit Detail")
+    st.markdown("### 📝 Detail Info")
     
     inp_tgl = st.text_input("Tanggal", datetime.now().strftime("%d %B %Y"))
     inp_fasil = st.text_input("Fasilitator", value=defaults['fasil'])
@@ -350,68 +332,66 @@ with st.sidebar:
         "pertemuan": inp_pertemuan, "tipe": inp_tipe_str, "fasil": inp_fasil, "lokasi": "Online"
     }
 
-# --- BAGIAN 1: GENERATOR ---
+# --- GENERATOR AREA ---
 pert_fmt = f"Pertemuan {inp_pertemuan}".replace("&", "dan")
 file_req = f"{inp_matkul}_{pert_fmt}_{inp_tgl}_{inp_tipe_str}_{inp_dosen}_{inp_jam_dot}"
 file_bukti = f"{inp_tgl}_{inp_dosen}_{inp_matkul}_{inp_fasil}_{pert_fmt}"
 
-st.markdown('<div class="fresh-card">', unsafe_allow_html=True)
-st.write("### 📂 Generator Nama File")
-st.write("Copy teks ini untuk request link Zoom atau rename bukti foto.")
+st.markdown('<div class="cyber-card">', unsafe_allow_html=True)
+st.markdown("### 1️⃣ File Name Generator")
 c1, c2 = st.columns(2)
 with c1:
-    st.info("🅰️ **Format Request Zoom**")
+    st.info("🅰️ Request Zoom")
     st.code(file_req, language="text")
 with c2:
-    st.success("🅱️ **Format Bukti Foto**")
+    st.success("🅱️ Bukti Foto")
     st.code(f"{file_bukti}.jpg", language="text")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- BAGIAN 2: UPLOAD ---
-st.markdown('<div class="fresh-card">', unsafe_allow_html=True)
-st.write("### 📤 Upload Data")
+# --- UPLOAD AREA ---
+st.markdown('<div class="cyber-card">', unsafe_allow_html=True)
+st.markdown("### 2️⃣ Data Injection")
 
 col_ocr, col_file = st.columns([1, 1.2])
 
 with col_ocr:
-    st.markdown("##### 📸 Screenshot Zoom")
-    up_foto = st.file_uploader("Upload Foto Zoom (JPG/PNG)", type=['jpg','png'])
+    st.markdown("**📸 Zoom OCR Scan**")
+    up_foto = st.file_uploader("Upload Image (JPG/PNG)", type=['jpg','png'])
     ocr_res = ""
     if up_foto:
-        with st.spinner("🔍 AI Sedang Membaca Teks..."):
+        with st.spinner("🔍 AI Analyzing..."):
             try: ocr_res = extract_text_from_image(up_foto)
             except: pass
-    txt_zoom = st.text_area("List Nama (Hasil Scan):", value=ocr_res, height=120)
-    
-    st.markdown("##### 🙋‍♂️ Peserta Manual")
-    txt_onsite = st.text_area("Ketik nama peserta tambahan (1 per baris):", height=80)
+    txt_zoom = st.text_area("Detected Names:", value=ocr_res, height=120)
+    st.markdown("**🙋‍♂️ Manual Input**")
+    txt_onsite = st.text_area("Type names here (1 per line):", height=80)
 
 with col_file:
-    st.markdown("##### 📂 File Master")
-    st.warning("⚠️ Support Excel (.xlsx) dan CSV (.csv)")
-    file_master = st.file_uploader("Upload Master Mahasiswa", type=['xlsx', 'csv'])
-    file_feedback = st.file_uploader("Upload Data Feedback", type=['xlsx', 'xls', 'csv'])
+    st.markdown("**📂 Databases**")
+    st.warning("⚠️ Supports .xlsx & .csv")
+    file_master = st.file_uploader("Master Mahasiswa", type=['xlsx', 'csv'])
+    file_feedback = st.file_uploader("Feedback Data", type=['xlsx', 'xls', 'csv'])
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- PROCESS ---
+# --- EXECUTE ---
 col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
 with col_btn2:
-    process_btn = st.button("🚀 MULAI ANALISIS")
+    process_btn = st.button("🚀 INITIALIZE ANALYSIS")
 
 if process_btn:
     if (not txt_zoom and not txt_onsite) or not file_master:
-        st.error("❌ Data tidak lengkap! Mohon isi data peserta dan upload Master Mahasiswa.")
+        st.error("❌ Data incomplete! Please provide participants and master data.")
         st.stop()
     
-    # 1. LOAD MASTER
+    # LOAD MASTER
     db = load_data_smart(file_master)
-    if db is None: st.error("Gagal baca Master."); st.stop()
+    if db is None: st.error("Database Read Error"); st.stop()
     col_nm = next((c for c in db.columns if 'nama' in c.lower()), None)
-    if not col_nm: st.error("Kolom 'Nama' tidak ditemukan di Master."); st.stop()
+    if not col_nm: st.error("Column 'Nama' missing in Master DB"); st.stop()
     db_names = db[col_nm].astype(str).tolist()
     
-    # 2. MATCHING
+    # MATCHING
     raw_names = [clean_nama_zoom(x) for x in (txt_zoom.split('\n') + txt_onsite.split('\n')) if len(x)>3]
     final_hadir, ambig = [], []
     for z in raw_names:
@@ -420,23 +400,20 @@ if process_btn:
             final_hadir.append(best)
             if len(conf)>1: ambig.append({"Input":z, "Pilih":best})
 
-    # 3. FEEDBACK
+    # FEEDBACK
     final_fb = []
     if file_feedback:
         df_fb = load_data_smart(file_feedback)
         if df_fb is not None:
             col_fb = next((c for c in df_fb.columns if 'nama' in c.lower()), None)
             col_sesi = next((c for c in df_fb.columns if 'pertemuan' in c.lower() or 'sesi' in c.lower()), None)
-            
             targets = [str(s) for s in get_session_list(inp_pertemuan)]
             if col_fb:
                 for _, r in df_fb.iterrows():
                     valid = True
                     if col_sesi:
-                        # Logic: Irisan angka antara CSV dan Target
                         csv_val = re.findall(r'\d+', str(r[col_sesi]))
                         if not set(targets).intersection(set(csv_val)): valid = False
-                    
                     if valid:
                         m, _ = get_best_match_info(str(r[col_fb]), db_names)
                         if m: final_fb.append(m)
@@ -449,44 +426,45 @@ if process_btn:
     
     stats = {'total':len(db), 'hadir':len(uh), 'fb_ok':fb_ok, 'fb_no':len(fb_no), 'pct':round(fb_ok/len(uh)*100,1) if uh else 0}
 
-    # RESULTS
-    st.markdown("### 📊 Dashboard Statistik")
+    # DASHBOARD
+    st.markdown("---")
+    st.markdown("### 📊 Analysis Report")
     
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Hadir", f"{len(uh)}/{len(db)}")
+    m1.metric("Attendance", f"{len(uh)}/{len(db)}")
     m2.metric("Feedback OK", f"{fb_ok}")
-    m3.metric("Belum Feedback", len(fb_no), delta_color="inverse")
-    m4.metric("Estimasi Gaji", f"Rp {inp_fee * (len(get_session_list(inp_pertemuan)) or 1):,.0f}")
+    m3.metric("Missing FB", len(fb_no), delta_color="inverse")
+    m4.metric("Income", f"Rp {inp_fee * (len(get_session_list(inp_pertemuan)) or 1):,.0f}")
 
-    if ambig: st.warning("⚠️ Perhatian: Ada nama yang ambigu."); st.dataframe(ambig)
+    if ambig: st.warning("⚠️ Ambiguous Names Detected"); st.dataframe(ambig)
     if fb_no: 
-        with st.expander("📢 Klik untuk lihat Daftar Nama Belum Feedback"):
+        with st.expander("📢 View Missing Feedback List"):
             st.code("\n".join(fb_no))
 
-    st.write("### 📥 Download Laporan")
-    t1, t2, t3, t4 = st.tabs(["Checklist Sprint", "Laporan Fasil", "Presensi Fakultas", "Rekap Gaji"])
+    st.write("### 📥 Reports & Exports")
+    t1, t2, t3, t4 = st.tabs(["Sprint Checklist", "Laporan Fasil", "Presensi Fakultas", "Rekap Gaji"])
     
     with t1:
         df = generate_laporan_sprint(info, stats)
         st.dataframe(df, use_container_width=True, hide_index=True)
         st.text_area("📋 Copy:", value=df.to_csv(sep='\t', index=False), height=100, key="c1")
-        st.download_button("📥 Excel", data=to_excel_download(df), file_name="Sprint.xlsx")
+        st.download_button("Excel File", data=to_excel_download(df), file_name="Sprint.xlsx")
     with t2:
         df = generate_laporan_fasilitator(info, stats, f"{file_bukti}.jpg")
         st.dataframe(df, use_container_width=True, hide_index=True)
         st.text_area("📋 Copy:", value=df.to_csv(sep='\t', index=False), height=100, key="c2")
-        st.download_button("📥 Excel", data=to_excel_download(df), file_name=f"Laporan_{info['tgl']}.xlsx")
+        st.download_button("Excel File", data=to_excel_download(df), file_name=f"Laporan_{info['tgl']}.xlsx")
     with t3:
         df = generate_presensi(db, uh, uf, info)
-        def color(v): return 'background-color:#d1fae5; color: black' if v=='O' else 'background-color:#fee2e2; color: black' if 'F' in str(v) else ''
+        def color(v): return 'background-color:#004d40; color: white' if v=='O' else 'background-color:#4a1414; color: white' if 'F' in str(v) else ''
         cols = [c for c in df.columns if "Nama" in c or "nama" in c] + [f'Sesi {i}' for i in get_session_list(inp_pertemuan)]
         st.dataframe(df[cols].style.applymap(color), use_container_width=True)
         st.text_area("📋 Copy:", value=df[cols].to_csv(sep='\t', index=False), height=150, key="c3")
-        st.download_button("📥 Excel", data=to_excel_download(df), file_name="Presensi.xlsx")
+        st.download_button("Excel File", data=to_excel_download(df), file_name="Presensi.xlsx")
     with t4:
         df = generate_gaji(info, inp_fee, f"{file_bukti}.jpg")
         st.dataframe(df, use_container_width=True, hide_index=True)
         st.text_area("📋 Copy:", value=df.to_csv(sep='\t', index=False), height=100, key="c4")
-        st.download_button("📥 Excel", data=to_excel_download(df), file_name="Gaji.xlsx")
+        st.download_button("Excel File", data=to_excel_download(df), file_name="Gaji.xlsx")
 
 st.markdown('</div>', unsafe_allow_html=True)
