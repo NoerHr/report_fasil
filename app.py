@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image
 
 # ==========================================
-# 1. UI CONFIGURATION
+# 1. UI CONFIGURATION (GLASSMORPHISM)
 # ==========================================
 st.set_page_config(page_title="Admin Kelas Pro Max", layout="wide", page_icon="💎")
 
@@ -52,7 +52,7 @@ def local_css():
 local_css()
 
 # ==========================================
-# 2. FUNGSI LOGIKA
+# 2. FUNGSI LOGIKA (BACKEND)
 # ==========================================
 
 @st.cache_resource
@@ -73,7 +73,6 @@ def extract_text_from_image(image_file):
     return "\n".join(cleaned)
 
 def parse_data_template(text):
-    """Parsing teks jadwal mentah (Mode Manual)"""
     data = {}
     jam_match = re.search(r'(\d{1,2}[\.:]\d{2})\s?-\s?(\d{1,2}[\.:]\d{2})', text)
     if jam_match:
@@ -92,7 +91,7 @@ def parse_data_template(text):
     kode_match = re.search(r'([A-Za-z]{1,5}\d{1,3})', sisa)
     data['kode_kelas'] = kode_match.group(1) if kode_match else "KODE"
 
-    # Tipe Kelas
+    # Parsing Tipe Kelas
     types_found = []
     if re.search(r'Reguler|Reg', text, re.IGNORECASE): types_found.append("Reguler")
     if re.search(r'Profesional|Pro', text, re.IGNORECASE): types_found.append("Profesional")
@@ -143,7 +142,7 @@ def to_excel_download(df):
     return output.getvalue()
 
 # ==========================================
-# 3. GENERATOR LAPORAN
+# 3. GENERATOR OUTPUT
 # ==========================================
 def generate_laporan_sprint(info, stats):
     tasks = ["Reminder H-1", "Dosen Hadir", "Host Claim", "Absensi", "Recording", "Upload GDrive", "Laporan Sistem", "Update Feedback"]
@@ -180,10 +179,9 @@ st.title("💎 Admin Kelas Pro Max")
 with st.sidebar:
     st.header("⚙️ Mode Input Data")
     
-    # 1. PILIH MODE
+    # 1. PILIH MODE (Ini yang sebelumnya hilang)
     mode_input = st.radio("Sumber Data:", ["✍️ Manual / Paste", "📂 Database Excel"])
     
-    # DEFAULT VALUES (KOSONG)
     defaults = {"jam_mulai":"00.00", "jam_full":"00:00-00:00", "matkul":"", "dosen":"", "kode":"", "tipe":["Reguler"]}
     
     # LOGIKA MODE 1: PARSING MANUAL
@@ -199,22 +197,21 @@ with st.sidebar:
         if uploaded_db_jadwal:
             try:
                 df_jadwal = pd.read_excel(uploaded_db_jadwal)
-                # Buat Label untuk Dropdown: "FTec4 - Financial Market - Boy"
+                # Buat Label Dropdown
                 df_jadwal['Label'] = df_jadwal.apply(lambda x: f"{x.get('Kode Kelas','?')} - {x.get('Mata Kuliah','?')} - {x.get('Nama Dosen','?')}", axis=1)
                 
                 pilihan_kelas = st.selectbox("Pilih Kelas:", df_jadwal['Label'])
                 
-                # Ambil data baris yang dipilih
+                # Ambil data
                 row = df_jadwal[df_jadwal['Label'] == pilihan_kelas].iloc[0]
                 
-                # Update Defaults dari Excel
+                # Update Defaults
                 defaults['matkul'] = str(row.get('Mata Kuliah', ''))
                 defaults['dosen'] = str(row.get('Nama Dosen', ''))
                 defaults['kode'] = str(row.get('Kode Kelas', ''))
                 jam_raw = str(row.get('Jam Mulai', '00.00'))
                 defaults['jam_mulai'] = jam_raw.replace(':', '.')
                 defaults['jam_full'] = f"{jam_raw.replace('.', ':')} - Selesai"
-                
                 tipe_raw = str(row.get('Tipe', 'Reguler'))
                 defaults['tipe'] = [t.strip() for t in tipe_raw.split(',')]
                 
@@ -224,7 +221,6 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📝 Detail Kelas (Edit)")
     
-    # FORM INPUT (AKAN TERISI OTOMATIS DARI MODE 1 ATAU 2)
     inp_tgl = st.text_input("📅 Tanggal", datetime.now().strftime("%d %B %Y"))
     inp_matkul = st.text_input("📚 Mata Kuliah", value=defaults['matkul'])
     inp_dosen = st.text_input("👨‍🏫 Nama Dosen", value=defaults['dosen'])
@@ -233,7 +229,6 @@ with st.sidebar:
     inp_jam_dot = c1.text_input("⏰ Jam (08.00)", value=defaults['jam_mulai'])
     inp_kode = c2.text_input("🏷️ Kode (F4)", value=defaults['kode'])
     
-    # Multiselect Tipe Kelas
     inp_tipe = st.multiselect("🎓 Tipe", ["Reguler", "Profesional", "Akselerasi"], default=[x for x in defaults['tipe'] if x in ["Reguler", "Profesional", "Akselerasi"]])
     inp_tipe_str = " & ".join(inp_tipe) if inp_tipe else "Reguler"
 
@@ -241,7 +236,6 @@ with st.sidebar:
     inp_pertemuan = c3.text_input("🔢 Sesi (ex: 1 & 2)", value="1")
     inp_fee = c4.number_input("💰 Fee", value=150000)
 
-    # Dictionary Final
     info = {
         "tgl": inp_tgl, "matkul": inp_matkul, "dosen": inp_dosen, "jam_dot": inp_jam_dot, 
         "jam_full": defaults['jam_full'], "kode": inp_kode, 
@@ -322,10 +316,18 @@ if st.button("🚀 PROSES & GENERATE EXCEL", type="primary"):
             df_fb = pd.read_csv(file_feedback)
             col_fb = [c for c in df_fb.columns if "Nama" in c][0]
             col_sesi = next((c for c in df_fb.columns if "Pertemuan" in c or "Sesi" in c), None)
+            
+            # --- FIX BUG FILTER SESI (LOGIKA BARU) ---
             targets = [str(s) for s in get_session_list(inp_pertemuan)]
             for _, r in df_fb.iterrows():
                 valid = True
-                if col_sesi and not any(t in str(r[col_sesi]) for t in targets): valid = False
+                if col_sesi:
+                    # Ambil semua angka dari kolom pertemuan di CSV
+                    sesi_csv_list = re.findall(r'\d+', str(r[col_sesi]))
+                    # Cek apakah ada irisan antara target dan sesi csv
+                    if not any(t in sesi_csv_list for t in targets):
+                        valid = False
+                
                 if valid:
                     m, _ = get_best_match_info(str(r[col_fb]), db_names)
                     if m: final_fb.append(m)
