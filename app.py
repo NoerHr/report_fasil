@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 
 # ==========================================
-# 1. UI CONFIGURATION (MODERN GLASS)
+# 1. UI CONFIGURATION
 # ==========================================
 st.set_page_config(page_title="Admin Kelas Pro Max", layout="wide", page_icon="💎")
 
@@ -17,63 +17,28 @@ def local_css():
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&display=swap');
     html, body, [class*="css"] { font-family: 'Outfit', sans-serif; }
-    
-    .stApp {
-        background-color: #09090b;
-        background-image: 
-            radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.15) 0, transparent 50%), 
-            radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0, transparent 50%);
-        color: #f8fafc;
-    }
-
+    .stApp { background-color: #09090b; color: #f8fafc; }
     .glass-box {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
-        backdrop-filter: blur(12px);
-        border-radius: 16px;
-        padding: 24px;
-        margin-bottom: 20px;
+        background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px; padding: 24px; margin-bottom: 20px;
     }
-
-    section[data-testid="stSidebar"] {
-        background-color: rgba(10, 10, 15, 0.9);
-        border-right: 1px solid rgba(255,255,255,0.05);
-    }
-
     .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox div[data-testid="stMarkdownContainer"] {
         background-color: rgba(255, 255, 255, 0.05) !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        color: white !important;
-        border-radius: 8px !important;
+        color: white !important; border-radius: 8px !important;
     }
-
     div.stButton > button {
         background: linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%);
-        color: white;
-        font-weight: 700;
-        border: none;
-        border-radius: 8px;
-        padding: 0.6rem 1.2rem;
-        width: 100%;
-        transition: 0.3s;
+        color: white; font-weight: 700; border: none; border-radius: 8px;
+        padding: 0.6rem 1.2rem; width: 100%; transition: 0.3s;
     }
-    div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);
-    }
-    
-    div[data-testid="stDataFrame"] {
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 8px;
-    }
+    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4); }
     </style>
     """, unsafe_allow_html=True)
-
 local_css()
 
 # ==========================================
-# 2. FUNGSI LOGIKA (BACKEND)
+# 2. LOGIC & PARSING
 # ==========================================
 
 @st.cache_resource
@@ -97,20 +62,11 @@ def extract_text_from_image(image_file):
     except: return ""
 
 def load_data_smart(uploaded_file):
-    """Smart Loader: Membaca Excel/CSV dengan berbagai delimiter"""
     try:
         if uploaded_file.name.endswith('.csv'):
-            try:
-                uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, sep=';')
-                if len(df.columns) < 2: raise Exception
-            except:
-                uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, sep=',')
-        else:
-            df = pd.read_excel(uploaded_file)
-        
-        # Bersihkan nama kolom
+            try: uploaded_file.seek(0); df = pd.read_csv(uploaded_file, sep=';')
+            except: uploaded_file.seek(0); df = pd.read_csv(uploaded_file, sep=',')
+        else: df = pd.read_excel(uploaded_file)
         df.columns = [str(c).strip().title() for c in df.columns]
         return df
     except: return None
@@ -145,16 +101,88 @@ def to_excel_download(df):
         for i, col in enumerate(df.columns):
             width = max(df[col].astype(str).map(len).max(), len(col)) + 2
             worksheet.set_column(i, i, width)
-        
-        workbook = writer.book
-        wrap_format = workbook.add_format({'text_wrap': True, 'valign': 'top'})
-        if 'Form Feedback' in df.columns:
-            idx_fb = df.columns.get_loc('Form Feedback')
-            worksheet.set_column(idx_fb, idx_fb, 50, wrap_format)
-
     return output.getvalue()
 
-# --- PARSER SINGLE MODE ---
+def clean_matkul_smart(text):
+    clean = re.sub(r'[\t\s]+', ' ', text).strip()
+    match = re.match(r'^(.+?)\s*\1$', clean, re.IGNORECASE)
+    if match: return match.group(1) 
+    return clean
+
+# --- LOGIKA BARU: MATCHING MATKUL + DOSEN + JAM ---
+def normalize_jam(text):
+    """Mengambil '08:30' dari string acak kayak '08.30 - 10.00' atau '8.30'"""
+    match = re.search(r'(\d{1,2})[:.](\d{2})', str(text))
+    if match:
+        h, m = match.groups()
+        return f"{int(h):02d}:{m}" # Force format 08:30
+    return ""
+
+def enrich_with_db(df_batch, df_db):
+    """Mencocokkan Kode Kelas berdasarkan: Matkul, Dosen, dan JAM"""
+    if df_db is None or df_batch is None: return df_batch
+    
+    # Deteksi Kolom Database
+    col_mtk_db = next((c for c in df_db.columns if 'mata' in c.lower() or 'matkul' in c.lower()), None)
+    col_dos_db = next((c for c in df_db.columns if 'dosen' in c.lower() or 'pengajar' in c.lower()), None)
+    col_jam_db = next((c for c in df_db.columns if 'jam' in c.lower() or 'waktu' in c.lower()), None)
+    col_kod_db = next((c for c in df_db.columns if 'kode' in c.lower()), None)
+    
+    if not col_mtk_db or not col_kod_db: return df_batch
+
+    db_records = df_db.to_dict('records')
+    
+    def get_kode_smart(row):
+        if row['Kode Kelas'] not in ["N/A", ""]: return row['Kode Kelas']
+        
+        # Data Target (Inputan User)
+        tgt_mtk = str(row['Mata Kuliah']).lower().strip()
+        tgt_dos = str(row['Nama Dosen']).lower().strip()
+        tgt_jam = normalize_jam(row['Jam'])
+        
+        best_score = 0
+        best_kode = "N/A"
+
+        for record in db_records:
+            # Data Database
+            db_mtk = str(record.get(col_mtk_db, '')).lower().strip()
+            db_dos = str(record.get(col_dos_db, '')).lower().strip() if col_dos_db else ""
+            db_jam = normalize_jam(record.get(col_jam_db, '')) if col_jam_db else ""
+            
+            # 1. Skor Matkul (Base Score)
+            score_mtk = difflib.SequenceMatcher(None, tgt_mtk, db_mtk).ratio()
+            
+            # 2. Skor Dosen
+            score_dos = 0
+            if col_dos_db:
+                score_dos = difflib.SequenceMatcher(None, tgt_dos, db_dos).ratio()
+                if tgt_dos in db_dos or db_dos in tgt_dos: score_dos = 1.0 # Bonus substring
+            
+            # 3. Skor Jam (Sangat Penting)
+            score_jam = 0
+            if col_jam_db and tgt_jam and db_jam:
+                score_jam = 1.0 if tgt_jam == db_jam else 0.0
+            
+            # Kalkulasi Skor Akhir (Bobot: Matkul 40%, Dosen 30%, Jam 30%)
+            # Jika kolom DB lengkap
+            if col_dos_db and col_jam_db:
+                final_score = (score_mtk * 0.4) + (score_dos * 0.3) + (score_jam * 0.3)
+            elif col_dos_db: # Gak ada kolom jam
+                final_score = (score_mtk * 0.6) + (score_dos * 0.4)
+            else: # Cuma matkul
+                final_score = score_mtk
+
+            # Threshold Match > 0.70
+            if final_score > best_score and final_score > 0.70:
+                best_score = final_score
+                best_kode = record[col_kod_db]
+        
+        return best_kode
+
+    df_batch['Kode Kelas'] = df_batch.apply(get_kode_smart, axis=1)
+    return df_batch
+
+# --- PARSER SINGLE ---
 def parse_data_template(text):
     data = {}
     jam_match = re.search(r'(\d{1,2}[\.:]\d{2})\s?-\s?(\d{1,2}[\.:]\d{2})', text)
@@ -177,7 +205,7 @@ def parse_data_template(text):
     if kode_match:
         data['kode'] = kode_match.group(1)
         parts_kode = sisa.split(data['kode'])
-        data['matkul'] = parts_kode[0].strip()
+        data['matkul'] = clean_matkul_smart(parts_kode[0].strip())
         raw_dosen = parts_kode[1] if len(parts_kode) > 1 else ""
         clean_dosen = re.split(r'(\d{2}[A-Za-z]|\d{2}\s|Reg|Pro|Sulawesi|Bali|Java|Sumatera|Papua|Pertemuan|\d+\s?STI)', raw_dosen, flags=re.IGNORECASE)[0]
         data['dosen'] = clean_dosen.strip().strip(",").strip()
@@ -193,79 +221,49 @@ def parse_data_template(text):
     data['tipe_str'] = types[0] if types else "Reguler"
     return data
 
-# --- PARSER BATCH MODE (FINAL FIX) ---
+# --- PARSER BATCH ---
 def parse_random_batch_text(raw_text):
     import re
     import pandas as pd
 
-    # 1. CLEANING BASIC
     clean_text = re.sub(r'\s*_\s*', '_', raw_text)
-    
-    # 2. SPLITTING BARIS (Teknik Split & Merge)
+    clean_text = re.sub(r'_(\d{1,2}[\.:]\d{2})\s*\([Pp][Aa][Rr][Tt]\s*(\d+)\)', r'_Pertemuan \2_\1', clean_text, flags=re.IGNORECASE)
+
     raw_parts = re.split(r'(_\d{1,2}[\.:]\d{2})', clean_text.strip())
     entries = []
-    # Loop untuk menggabungkan Data + Jam yang terpotong
     for i in range(0, len(raw_parts) - 1, 2):
         full_row = raw_parts[i] + raw_parts[i+1]
-        if len(full_row) > 10: 
-            entries.append(full_row)
+        if len(full_row) > 10: entries.append(full_row)
     
     parsed_data = []
     
     for entry in entries:
         try:
             parts = entry.split('_')
-            
-            # --- LOGIKA MUNDUR (Backwards Parsing) ---
             jam = parts[-1].strip().replace('.', ':').zfill(5)
             dosen = parts[-2].strip()
-            
-            # Cek Kolom -3: Apakah ini Tipe (Reguler/Pro) atau Tanggal?
             val_min_3 = parts[-3].strip()
             if re.search(r'(Reguler|Profesional|Professional|International|Reg|Pro)', val_min_3, re.IGNORECASE):
-                tipe = val_min_3
-                tgl_raw = parts[-4].strip()
-                sesi_raw = parts[-5].strip() 
-                front_blob = parts[:-5] 
+                tipe = val_min_3; tgl_raw = parts[-4].strip(); sesi_raw = parts[-5].strip(); front_blob = parts[:-5] 
             else:
-                tipe = "Reguler" # Default jika tipe hilang
-                tgl_raw = val_min_3 
-                sesi_raw = parts[-4].strip()
-                front_blob = parts[:-4]
+                tipe = "Reguler"; tgl_raw = val_min_3; sesi_raw = parts[-4].strip(); front_blob = parts[:-4]
 
-            # --- PARSING DEPAN (FASIL & MATKUL) ---
             front_text = "_".join(front_blob)
             days = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
             fasil = "Fasil"; temp_text = front_text
-            
             for day in days:
                 match = re.search(f"(.*?)({day})", front_text, re.IGNORECASE)
-                if match:
-                    fasil = match.group(1).strip()
-                    temp_text = front_text[match.end():] 
-                    break
+                if match: fasil = match.group(1).strip(); temp_text = front_text[match.end():]; break
             
-            # Matkul Clean & Duplicate Removal
             match_tahun = re.search(r'202\d', temp_text)
-            if match_tahun:
-                matkul_raw = temp_text[match_tahun.end():].strip()
-            else:
-                matkul_raw = temp_text
-            
-            if len(matkul_raw) > 4:
-                mid = len(matkul_raw) // 2
-                if matkul_raw[:mid].lower() == matkul_raw[mid:].lower(): matkul = matkul_raw[:mid]
-                else: matkul = matkul_raw
-            else: matkul = matkul_raw
+            matkul_messy = temp_text[match_tahun.end():].strip() if match_tahun else temp_text
+            matkul = clean_matkul_smart(matkul_messy)
 
-            # --- LOGIKA SPLIT PERTEMUAN ---
             sessions_found = re.findall(r'\d+', sesi_raw)
             if not sessions_found: sessions_found = ['1']
             
-            # Req Zoom: Gabungan (Tidak di-split)
             req_zoom_combined = f"{matkul}_{sesi_raw}_{tgl_raw}_{tipe}_{dosen}_{jam}"
 
-            # Loop Split Baris Excel
             for sess_num in sessions_found:
                 clean_tgl = tgl_raw.replace(",", "")
                 clean_dos = re.sub(r'[\\/*?:"<>|]', "", dosen)
@@ -275,12 +273,9 @@ def parse_random_batch_text(raw_text):
                 parsed_data.append({
                     "Tanggal": tgl_raw, "Fasilitator": fasil, "Jam": jam,
                     "Kode Kelas": "N/A", "Mata Kuliah": matkul, "Nama Dosen": dosen,
-                    "Tipe": tipe, 
-                    "Sesi": sess_num, # Sesi Angka (untuk sistem)
-                    "Req Zoom": req_zoom_combined, # String Req Zoom (Asli)
-                    "Nama File Foto": file_foto 
+                    "Tipe": tipe, "Sesi": sess_num, 
+                    "Req Zoom": req_zoom_combined, "Nama File Foto": file_foto 
                 })
-
         except Exception as e: pass
 
     return pd.DataFrame(parsed_data)
@@ -322,12 +317,13 @@ def run_analysis(info, txt_zoom, txt_onsite, db_names, df_fb):
              'pct': round(fb_ok/len(hadir)*100,1) if hadir else 0, 'ghosts': ghosts, 'fb_no_list': fb_no}
     return stats, hadir, final_fb
 
-def generate_laporan_utama_sesuai_format(info, stats, filename, sks, role):
+def generate_output_excel(info, stats, filename, sks, role):
     summary = f"Kelas : {info['kode']}\nJam : {info['jam_full']}\nTotal: {stats['total']}\nHadir: {stats['hadir_valid']}\nFeedback: {stats['fb_ok']}"
     return pd.DataFrame({
         "Tanggal": [info['tgl']], "Dosen": [info['dosen']], "Matkul": [info['matkul']], 
         "Jam": [info['jam_full']], "Lokasi": [info['tipe_belajar']], "SKS": [sks], 
-        "Tipe": [info['tipe']], "Sesi": [info['pertemuan']], "Bukti": [filename],
+        "Tipe": [info['tipe']], "Sesi": [info['pertemuan']], 
+        "Req Zoom": [info.get('req_zoom', '-')], "Bukti": [filename],
         "Hadir": [stats['hadir_valid']], "Feedback %": [f"{stats['pct']}%"], "Summary": [summary]
     })
 
@@ -344,6 +340,17 @@ with st.sidebar:
     st.markdown("### 🎛️ Control Panel")
     app_mode = st.radio("Mode:", ["👤 Single", "🚀 Batch Process", "🛠️ Buat Template"])
     inp_tipe_belajar = st.selectbox("📍 Lokasi Belajar:", ["Online", "Onsite", "Hybrid"])
+    
+    st.markdown("---")
+    # FITUR BARU: DB JADWAL OPSIONAL
+    st.markdown("### 📂 DB Jadwal (Opsional)")
+    up_db_jadwal = st.file_uploader("Auto-Fill Kode Kelas", type=['xlsx', 'csv'])
+    if up_db_jadwal:
+        st.session_state.db_jadwal = load_data_smart(up_db_jadwal)
+        st.success(f"DB Loaded: {len(st.session_state.db_jadwal)} data")
+    else:
+        st.session_state.db_jadwal = None
+
     st.markdown("---")
     inp_rem_h1 = st.text_input("⏰ H-1", "13.00"); inp_rem_h30 = st.text_input("⏰ H-30m", "07.30")
     inp_sks = st.number_input("SKS", 3); inp_fee = st.number_input("Fee", 150000); inp_role = st.text_input("Peran", "Fasilitator Kelas")
@@ -365,7 +372,6 @@ if app_mode == "👤 Single":
             i_tipe = st.text_input("Tipe", value=defaults.get('tipe_str','Reguler'))
             i_sesi = st.text_input("Sesi (String)", value=defaults.get('pertemuan_str','Pertemuan 1'))
             
-            # Helper Output
             req_zoom_out = f"{i_matkul}_{i_sesi}_{i_tgl}_{i_tipe}_{i_dosen}_{i_jam}"
             clean_tgl = i_tgl.replace(",", "")
             clean_dos = re.sub(r'[\\/*?:"<>|]', "", i_dosen)
@@ -390,7 +396,7 @@ if app_mode == "👤 Single":
 
     if st.button("🚀 PROSES DATA"):
         if not up_master: st.error("Master Wajib!"); st.stop()
-        info = {"tgl":i_tgl, "matkul":i_matkul, "dosen":i_dosen, "kode":i_kode, "jam_full":i_jam, "pertemuan":i_sesi, "tipe":i_tipe, "tipe_belajar":inp_tipe_belajar, "rem_h1":inp_rem_h1, "rem_h30":inp_rem_h30}
+        info = {"tgl":i_tgl, "matkul":i_matkul, "dosen":i_dosen, "kode":i_kode, "jam_full":i_jam, "pertemuan":i_sesi, "tipe":i_tipe, "tipe_belajar":inp_tipe_belajar, "rem_h1":inp_rem_h1, "rem_h30":inp_rem_h30, "req_zoom": req_zoom_out}
         db = load_data_smart(up_master); db_names = db[next((c for c in db.columns if 'nama' in c.lower()), db.columns[1])].astype(str).tolist()
         df_fb_data = load_data_smart(up_fb) if up_fb else None
         
@@ -402,7 +408,7 @@ if app_mode == "👤 Single":
         if stats['fb_no_list']: 
             with st.expander("📢 Belum Feedback"): st.code("\n".join(stats['fb_no_list']))
 
-        df_out = generate_laporan_utama_sesuai_format(info, stats, file_foto_out, inp_sks, inp_role)
+        df_out = generate_output_excel(info, stats, file_foto_out, inp_sks, inp_role)
         st.download_button("Download Laporan", to_excel_download(df_out), f"Laporan_{i_kode}.xlsx")
 
 # --- MODE 2: BATCH ---
@@ -410,7 +416,12 @@ elif app_mode == "🚀 Batch Process":
     batch_src = st.radio("Sumber:", ["Paste Text", "Upload Excel"], horizontal=True)
     if batch_src == "Paste Text":
         raw_batch = st.text_area("Paste Data:", height=100)
-        if st.button("Parse"): st.session_state.batch_df = parse_random_batch_text(raw_batch)
+        if st.button("Parse"): 
+            df_parsed = parse_random_batch_text(raw_batch)
+            if 'db_jadwal' in st.session_state and st.session_state.db_jadwal is not None:
+                df_parsed = enrich_with_db(df_parsed, st.session_state.db_jadwal)
+                st.toast("✅ Kode Kelas otomatis terisi dari Database!")
+            st.session_state.batch_df = df_parsed
     else:
         up_batch = st.file_uploader("Upload Excel", type=['xlsx'])
         if up_batch: st.session_state.batch_df = load_data_smart(up_batch)
@@ -429,17 +440,16 @@ elif app_mode == "🚀 Batch Process":
             res = []; res_gaji = []; prog = st.progress(0)
             
             for idx, row in df_proc.iterrows():
-                # Flexible Column Getter
                 def g(k, d=''): return str(row.get(next((c for c in df_proc.columns if k.lower() in c.lower()), None), d))
                 
                 info = {"tgl":g('tanggal'), "matkul":g('mata'), "dosen":g('dosen'), "kode":g('kode','N/A'), "jam_full":g('jam'), 
-                        "pertemuan":g('sesi'), "tipe":g('tipe'), "tipe_belajar":inp_tipe_belajar, "rem_h1":inp_rem_h1, "rem_h30":inp_rem_h30}
+                        "pertemuan":g('sesi'), "tipe":g('tipe'), "tipe_belajar":inp_tipe_belajar, "rem_h1":inp_rem_h1, "rem_h30":inp_rem_h30, "req_zoom": g('req zoom')}
                 t_img = g('foto', g('file'))
                 
                 txt_zoom = extract_text_from_image(img_map[t_img]) if t_img in img_map else ""
                 stats, _, _ = run_analysis(info, txt_zoom, "", db_names, df_fb_data)
                 
-                res.append(generate_laporan_utama_sesuai_format(info, stats, t_img, inp_sks, inp_role))
+                res.append(generate_output_excel(info, stats, t_img, inp_sks, inp_role))
                 res_gaji.append(generate_gaji(info, inp_fee, t_img))
                 prog.progress((idx+1)/len(df_proc))
             
@@ -455,4 +465,3 @@ elif app_mode == "🛠️ Buat Template":
         df = parse_random_batch_text(raw)
         st.dataframe(df)
         st.download_button("Download Excel", to_excel_download(df), "Template_Batch.xlsx")
-        
