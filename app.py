@@ -103,13 +103,25 @@ def to_excel_download(df):
             worksheet.set_column(i, i, width)
     return output.getvalue()
 
+def to_excel_multi_sheet(data_dict):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        for sheet_name, df in data_dict.items():
+            safe_name = re.sub(r'[\\/*?:\[\]]', '', str(sheet_name))[:31]
+            df.to_excel(writer, index=False, sheet_name=safe_name)
+            worksheet = writer.sheets[safe_name]
+            for i, col in enumerate(df.columns):
+                width = max(df[col].astype(str).map(len).max(), len(col)) + 2
+                worksheet.set_column(i, i, width)
+    return output.getvalue()
+
 def clean_matkul_smart(text):
     clean = re.sub(r'[\t\s]+', ' ', text).strip()
     match = re.match(r'^(.+?)\s*\1$', clean, re.IGNORECASE)
     if match: return match.group(1) 
     return clean
 
-# --- ENRICHMENT LOGIC ---
+# --- ENRICHMENT LOGIC (AUTO FILL KODE KELAS) ---
 def normalize_jam(text):
     match = re.search(r'(\d{1,2})[:.](\d{2})', str(text))
     if match: return f"{int(match.group(1)):02d}:{match.group(2)}"
@@ -117,10 +129,17 @@ def normalize_jam(text):
 
 def enrich_with_db(df_batch, df_db):
     if df_db is None or df_batch is None: return df_batch
-    col_mtk_db = next((c for c in df_db.columns if 'mata' in c.lower() or 'matkul' in c.lower()), None)
-    col_dos_db = next((c for c in df_db.columns if 'dosen' in c.lower() or 'pengajar' in c.lower()), None)
-    col_jam_db = next((c for c in df_db.columns if 'jam' in c.lower() or 'waktu' in c.lower()), None)
-    col_kod_db = next((c for c in df_db.columns if 'kode' in c.lower()), None)
+    
+    # Keyword flexible
+    key_mtk = ['mata', 'matkul', 'course', 'subject', 'mk']
+    key_dos = ['dosen', 'pengajar', 'lecturer', 'instructor', 'nama dosen']
+    key_jam = ['jam', 'waktu', 'time', 'pukul', 'schedule']
+    key_kod = ['kode', 'code', 'class id', 'kd']
+
+    col_mtk_db = next((c for c in df_db.columns if any(k in c.lower() for k in key_mtk)), None)
+    col_dos_db = next((c for c in df_db.columns if any(k in c.lower() for k in key_dos)), None)
+    col_jam_db = next((c for c in df_db.columns if any(k in c.lower() for k in key_jam)), None)
+    col_kod_db = next((c for c in df_db.columns if any(k in c.lower() for k in key_kod)), None)
     
     if not col_mtk_db or not col_kod_db: return df_batch
 
@@ -146,11 +165,12 @@ def enrich_with_db(df_batch, df_db):
             
             score_jam = 1.0 if col_jam_db and tgt_jam and db_jam and tgt_jam == db_jam else 0.0
             
+            # Bobot Skor
             if col_dos_db and col_jam_db: final_score = (score_mtk * 0.4) + (score_dos * 0.3) + (score_jam * 0.3)
             elif col_dos_db: final_score = (score_mtk * 0.6) + (score_dos * 0.4)
             else: final_score = score_mtk
 
-            if final_score > best_score and final_score > 0.70:
+            if final_score > best_score and final_score > 0.65: # Threshold 65%
                 best_score = final_score
                 best_kode = record[col_kod_db]
         return best_kode
@@ -248,26 +268,24 @@ def parse_random_batch_text(raw_text):
         except Exception as e: pass
     return pd.DataFrame(parsed_data)
 
-# --- STATS & EXCEL (UPDATED LOGIC PRESENSI S/O/A) ---
+# --- STATS & EXCEL ---
 def run_analysis(info, txt_zoom, txt_onsite, db_names, df_fb):
-    # 1. Matching Zoom (Online)
+    # 1. Matching
     list_zoom = [clean_nama_zoom(x) for x in str(txt_zoom).split('\n') if len(x)>3]
     hadir_zoom = set()
     for z in list_zoom:
         best, _ = get_best_match_info(z, db_names)
         if best: hadir_zoom.add(best)
 
-    # 2. Matching Onsite (Offline)
     list_onsite = [clean_nama_zoom(x) for x in str(txt_onsite).split('\n') if len(x)>3]
     hadir_onsite = set()
     for z in list_onsite:
         best, _ = get_best_match_info(z, db_names)
         if best: hadir_onsite.add(best)
     
-    # Gabungan Hadir (Untuk hitungan total)
     total_hadir = hadir_zoom.union(hadir_onsite)
 
-    # 3. Check Feedback
+    # 2. Feedback
     final_fb = set()
     ghosts = []
     if df_fb is not None:
@@ -295,7 +313,6 @@ def run_analysis(info, txt_zoom, txt_onsite, db_names, df_fb):
              'onsite_count': len(hadir_onsite), 'fb_ok': fb_ok, 'fb_no': len(fb_no), 
              'pct': round(fb_ok/len(total_hadir)*100,1) if total_hadir else 0, 'ghosts': ghosts, 'fb_no_list': fb_no}
     
-    # Return Sets Terpisah untuk Logic S/O
     return stats, hadir_zoom, hadir_onsite, final_fb
 
 def generate_presensi_real(db, hadir_zoom, hadir_onsite, list_feedback, info):
@@ -309,16 +326,11 @@ def generate_presensi_real(db, hadir_zoom, hadir_onsite, list_feedback, info):
     for idx, r in df_out.iterrows():
         n = str(r['Nama Mahasiswa'])
         code = "A" # Default Alpha
+        if n in hadir_onsite: code = "S" if n in list_feedback else "SF"
+        elif n in hadir_zoom: code = "O" if n in list_feedback else "OF"
         
-        # LOGIKA S/O/SF/OF
-        if n in hadir_onsite:
-            code = "S" if n in list_feedback else "SF"
-        elif n in hadir_zoom:
-            code = "O" if n in list_feedback else "OF"
-            
         for s in target_sessions:
             if 1 <= int(s) <= 16: df_out.loc[idx, f"Sesi {s}"] = code
-            
     return df_out
 
 def generate_output_excel(info, stats, filename, sks, role):
@@ -347,9 +359,8 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### 📂 DB Jadwal (Opsional)")
-    up_db_jadwal = st.file_uploader("Upload DB Jadwal (Excel)", type=['xlsx'])
+    up_db_jadwal = st.file_uploader("Upload DB Jadwal (Excel)", type=['xlsx', 'csv'])
     
-    # LOAD DATABASE KE SESSION STATE
     if up_db_jadwal:
         st.session_state.db_jadwal = load_data_smart(up_db_jadwal)
         st.success(f"✅ DB Jadwal Loaded: {len(st.session_state.db_jadwal)} data")
@@ -363,35 +374,34 @@ with st.sidebar:
 # --- MODE 1: SINGLE ---
 if app_mode == "👤 Single":
     with st.expander("📝 Input Data Kelas", expanded=True):
-        
-        # LOGIKA PILIHAN INPUT
         has_db = st.session_state.db_jadwal is not None
         options = ["✍️ Paste Text"]
         if has_db: options.append("▼ Pilih dari Database")
         
         inp_source = st.radio("Sumber Input:", options, horizontal=True)
-        
         defaults = {"jam_mulai":"00.00", "jam_full":"00:00-00:00", "matkul":"", "dosen":"", "kode":"", "tipe":["Reguler"], "fasil": "Fasil"}
         
         if inp_source == "✍️ Paste Text":
             raw = st.text_area("Paste Jadwal:", height=100)
             if raw: defaults.update(parse_data_template(raw))
-            
+            if st.session_state.db_jadwal is not None and defaults.get('matkul'):
+                # Auto Enrich if DB is present
+                df_temp = pd.DataFrame([{"Mata Kuliah": defaults['matkul'], "Nama Dosen": defaults['dosen'], "Jam": defaults['jam_full'], "Kode Kelas": "N/A"}])
+                df_temp = enrich_with_db(df_temp, st.session_state.db_jadwal)
+                defaults['kode'] = df_temp.iloc[0]['Kode Kelas']
+                
         elif inp_source == "▼ Pilih dari Database":
             df_sch = st.session_state.db_jadwal
-            # Auto-Detect Column Names
             c_mtk = next((c for c in df_sch.columns if 'mata' in c.lower() or 'matkul' in c.lower()), df_sch.columns[0])
             c_dos = next((c for c in df_sch.columns if 'dosen' in c.lower() or 'pengajar' in c.lower()), df_sch.columns[1])
             c_jam = next((c for c in df_sch.columns if 'jam' in c.lower() or 'waktu' in c.lower()), None)
             
-            # Buat Label Dropdown: "Matkul - Dosen [Jam]"
             df_sch['Label_UI'] = df_sch[c_mtk].astype(str) + " - " + df_sch[c_dos].astype(str)
             if c_jam: df_sch['Label_UI'] += " [" + df_sch[c_jam].astype(str) + "]"
             
             pilihan = st.selectbox("Pilih Kelas:", df_sch['Label_UI'])
-            
-            # Isi Form otomatis
             row = df_sch[df_sch['Label_UI'] == pilihan].iloc[0]
+            
             defaults['matkul'] = str(row[c_mtk])
             defaults['dosen'] = str(row[c_dos])
             defaults['kode'] = str(row.get(next((c for c in df_sch.columns if 'kode' in c.lower()), ''), ''))
@@ -401,7 +411,6 @@ if app_mode == "👤 Single":
                 match_j = re.search(r'(\d{1,2})[:.](\d{2})', raw_jam)
                 if match_j: defaults['jam_mulai'] = f"{match_j.group(1)}:{match_j.group(2)}"
 
-        # FORM INPUT
         st.markdown("---")
         c1, c2 = st.columns(2)
         with c1:
@@ -443,7 +452,6 @@ if app_mode == "👤 Single":
         db = load_data_smart(up_master); db_names = db[next((c for c in db.columns if 'nama' in c.lower()), db.columns[1])].astype(str).tolist()
         df_fb_data = load_data_smart(up_fb) if up_fb else None
         
-        # FIX: UNPACK 4 VALUES
         stats, hadir_zoom, hadir_onsite, final_fb = run_analysis(info, txt_zoom, txt_onsite, db_names, df_fb_data)
         
         st.markdown("---")
@@ -456,7 +464,6 @@ if app_mode == "👤 Single":
         df_out = generate_output_excel(info, stats, file_foto_out, inp_sks, inp_role)
         st.download_button("Download Laporan", to_excel_download(df_out), f"Laporan_{i_kode}.xlsx")
         
-        # TAB PRESENSI DETAIL (BARU)
         with st.expander("🎓 Download Detail Absensi", expanded=True):
             df_presensi = generate_presensi_real(db, hadir_zoom, hadir_onsite, final_fb, info)
             st.dataframe(df_presensi)
@@ -488,7 +495,9 @@ elif app_mode == "🚀 Batch Process":
             db = load_data_smart(up_master); db_names = db[next((c for c in db.columns if 'nama' in c.lower()), db.columns[1])].astype(str).tolist()
             df_fb_data = load_data_smart(up_fb) if up_fb else None
             img_map = {f.name: f for f in up_imgs}
-            res = []; res_gaji = []; prog = st.progress(0)
+            
+            res = []; res_gaji = []; batch_presensi_dfs = {}
+            prog = st.progress(0)
             
             for idx, row in df_proc.iterrows():
                 def g(k, d=''): return str(row.get(next((c for c in df_proc.columns if k.lower() in c.lower()), None), d))
@@ -499,16 +508,22 @@ elif app_mode == "🚀 Batch Process":
                 
                 txt_zoom = extract_text_from_image(img_map[t_img]) if t_img in img_map else ""
                 
-                # FIX: UNPACK 4 VALUES (Ignore hadir_zoom/onsite in batch for now)
-                stats, _, _, _ = run_analysis(info, txt_zoom, "", db_names, df_fb_data)
+                stats, h_zoom, h_onsite, f_fb = run_analysis(info, txt_zoom, "", db_names, df_fb_data)
                 
                 res.append(generate_output_excel(info, stats, t_img, inp_sks, inp_role))
                 res_gaji.append(generate_gaji(info, inp_fee, t_img))
+                
+                df_pres = generate_presensi_real(db, h_zoom, h_onsite, f_fb, info)
+                sheet_id = f"{idx+1}_{info['matkul'][:15]}_{info['pertemuan']}"
+                batch_presensi_dfs[sheet_id] = df_pres
+                
                 prog.progress((idx+1)/len(df_proc))
             
             st.success("Selesai!")
-            st.download_button("Download Laporan Gabungan", to_excel_download(pd.concat(res)), "Batch_Laporan.xlsx")
-            st.download_button("Download Gaji", to_excel_download(pd.concat(res_gaji)), "Batch_Gaji.xlsx")
+            c1, c2, c3 = st.columns(3)
+            c1.download_button("📥 Laporan Gabungan", to_excel_download(pd.concat(res)), "Batch_Laporan.xlsx")
+            c2.download_button("📥 Rekap Gaji", to_excel_download(pd.concat(res_gaji)), "Batch_Gaji.xlsx")
+            c3.download_button("📥 Detail Presensi (Multi-Sheet)", to_excel_multi_sheet(batch_presensi_dfs), "Batch_Presensi.xlsx")
 
 # --- MODE 3: TEMPLATE ---
 elif app_mode == "🛠️ Buat Template":
