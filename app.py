@@ -10,7 +10,7 @@ from PIL import Image
 # ==========================================
 # 1. UI CONFIGURATION (MODERN GLASS)
 # ==========================================
-st.set_page_config(page_title="Report Fasil", layout="wide", page_icon="💎")
+st.set_page_config(page_title="Admin Kelas Pro Max", layout="wide", page_icon="💎")
 
 def local_css():
     st.markdown("""
@@ -91,7 +91,7 @@ def extract_text_from_image(image_file):
         for text in result:
             t = text.strip()
             if len(t) > 3 and not any(w in t.lower() for w in ignore):
-                t = re.sub(r'^\d+\.?\s*', '', t)
+                t = re.sub(r'^\d+[\.\)]?\s*', '', t)
                 cleaned.append(t)
         return "\n".join(cleaned)
     except: return ""
@@ -134,7 +134,7 @@ def get_best_match_info(nama_zoom, list_db_names):
     return None, []
 
 def get_session_list(pertemuan_str):
-    clean_str = str(pertemuan_str).replace('&', ',').replace('-', ',').replace('dan', ',')
+    clean_str = str(pertemuan_str).replace('&', ',').replace('-', ',').replace('dan', ',').replace('Pertemuan', '')
     return [int(x) for x in clean_str.split(',') if x.strip().isdigit()]
 
 def to_excel_download(df):
@@ -154,6 +154,7 @@ def to_excel_download(df):
 
     return output.getvalue()
 
+# --- PARSER SINGLE MODE ---
 def parse_data_template(text):
     data = {}
     jam_match = re.search(r'(\d{1,2}[\.:]\d{2})\s?-\s?(\d{1,2}[\.:]\d{2})', text)
@@ -167,154 +168,132 @@ def parse_data_template(text):
         for day in days:
             if fasil_clean.lower().startswith(day.lower()):
                 fasil_clean = fasil_clean[len(day):].strip(); break
-        data['fasilitator'] = fasil_clean if fasil_clean else "Fasilitator"
+        data['fasil'] = fasil_clean if fasil_clean else "Fasil"
         sisa = parts[1] if len(parts) > 1 else text
     else:
-        data['jam_mulai'] = "00.00"; data['jam_full'] = "00:00 - 00:00"; data['fasilitator'] = "Fasilitator"; sisa = text
+        data['jam_mulai'] = "00.00"; data['jam_full'] = "00:00 - 00:00"; data['fasil'] = "Fasil"; sisa = text
 
     kode_match = re.search(r'([A-Za-z]{2,}\d{1,3})', sisa)
     if kode_match:
-        data['kode_kelas'] = kode_match.group(1)
-        parts_kode = sisa.split(data['kode_kelas'])
+        data['kode'] = kode_match.group(1)
+        parts_kode = sisa.split(data['kode'])
         data['matkul'] = parts_kode[0].strip()
-        raw_dosen = parts_kode[1]
-        clean_dosen = re.split(r'(\d{2}[A-Za-z]|\d{2}\s|Reg|Pro|Sulawesi|Bali|Java|Sumatera|Papua|Pertemuan)', raw_dosen, flags=re.IGNORECASE)[0]
+        raw_dosen = parts_kode[1] if len(parts_kode) > 1 else ""
+        clean_dosen = re.split(r'(\d{2}[A-Za-z]|\d{2}\s|Reg|Pro|Sulawesi|Bali|Java|Sumatera|Papua|Pertemuan|\d+\s?STI)', raw_dosen, flags=re.IGNORECASE)[0]
         data['dosen'] = clean_dosen.strip().strip(",").strip()
     else:
-        data['kode_kelas'] = "KODE"; data['matkul'] = "Matkul"; data['dosen'] = "Dosen"
+        data['kode'] = "KODE"; data['matkul'] = "Matkul"; data['dosen'] = "Dosen"
 
-    pertemuan_match = re.search(r'Pertemuan\s?([\d\s&,-]+)', text, re.IGNORECASE)
-    data['pertemuan_str'] = pertemuan_match.group(1).strip() if pertemuan_match else "1"
+    pertemuan_match = re.search(r'(Pertemuan\s?[\d\s&,-]+)', text, re.IGNORECASE)
+    data['pertemuan_str'] = pertemuan_match.group(1).strip() if pertemuan_match else "Pertemuan 1"
     
     types = []
     if re.search(r'Reguler|Reg', text, re.IGNORECASE): types.append("Reguler")
     if re.search(r'Profesional|Pro', text, re.IGNORECASE): types.append("Profesional")
-    data['tipe_str'] = " & ".join(types) if types else "Reguler"
+    data['tipe_str'] = types[0] if types else "Reguler"
     return data
 
-# --- PARSE BATCH TEXT ---
+# --- PARSER BATCH MODE (FINAL FIX) ---
 def parse_random_batch_text(raw_text):
-    entries = re.split(r'(?<=_\d{2}\.\d{2})', raw_text.strip())
+    import re
+    import pandas as pd
+
+    # 1. CLEANING BASIC
+    clean_text = re.sub(r'\s*_\s*', '_', raw_text)
+    
+    # 2. SPLITTING BARIS (Teknik Split & Merge)
+    raw_parts = re.split(r'(_\d{1,2}[\.:]\d{2})', clean_text.strip())
+    entries = []
+    # Loop untuk menggabungkan Data + Jam yang terpotong
+    for i in range(0, len(raw_parts) - 1, 2):
+        full_row = raw_parts[i] + raw_parts[i+1]
+        if len(full_row) > 10: 
+            entries.append(full_row)
+    
     parsed_data = []
+    
     for entry in entries:
-        if len(entry) < 10: continue
         try:
             parts = entry.split('_')
-            jam = parts[-1].strip()
-            dosen = parts[-2].strip()
-            tipe = parts[-3].strip()
-            tgl_raw = parts[-4].strip()
-            sesi_raw = parts[-5].strip()
-            sesi = re.search(r'\d+', sesi_raw).group(0) if re.search(r'\d+', sesi_raw) else "1"
-            front_blob = parts[:-5]
-            front_text = "_".join(front_blob)
             
+            # --- LOGIKA MUNDUR (Backwards Parsing) ---
+            jam = parts[-1].strip().replace('.', ':').zfill(5)
+            dosen = parts[-2].strip()
+            
+            # Cek Kolom -3: Apakah ini Tipe (Reguler/Pro) atau Tanggal?
+            val_min_3 = parts[-3].strip()
+            if re.search(r'(Reguler|Profesional|Professional|International|Reg|Pro)', val_min_3, re.IGNORECASE):
+                tipe = val_min_3
+                tgl_raw = parts[-4].strip()
+                sesi_raw = parts[-5].strip() 
+                front_blob = parts[:-5] 
+            else:
+                tipe = "Reguler" # Default jika tipe hilang
+                tgl_raw = val_min_3 
+                sesi_raw = parts[-4].strip()
+                front_blob = parts[:-4]
+
+            # --- PARSING DEPAN (FASIL & MATKUL) ---
+            front_text = "_".join(front_blob)
             days = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
-            fasil = "Fasil"
-            temp_text = front_text
+            fasil = "Fasil"; temp_text = front_text
+            
             for day in days:
                 match = re.search(f"(.*?)({day})", front_text, re.IGNORECASE)
                 if match:
                     fasil = match.group(1).strip()
-                    temp_text = front_text[match.end():]
+                    temp_text = front_text[match.end():] 
                     break
             
-            bulan_tahun = " ".join(tgl_raw.split(" ")[1:])
-            if bulan_tahun in temp_text:
-                matkul_messy = temp_text.split(bulan_tahun)[-1].strip()
-                half = len(matkul_messy) // 2
-                matkul = matkul_messy[:half] if matkul_messy[:half] == matkul_messy[half:] else matkul_messy
+            # Matkul Clean & Duplicate Removal
+            match_tahun = re.search(r'202\d', temp_text)
+            if match_tahun:
+                matkul_raw = temp_text[match_tahun.end():].strip()
             else:
-                matkul = "Matkul"
+                matkul_raw = temp_text
+            
+            if len(matkul_raw) > 4:
+                mid = len(matkul_raw) // 2
+                if matkul_raw[:mid].lower() == matkul_raw[mid:].lower(): matkul = matkul_raw[:mid]
+                else: matkul = matkul_raw
+            else: matkul = matkul_raw
 
-            clean_tgl = tgl_raw.replace(",", "")
-            clean_dos = re.sub(r'[\\/*?:"<>|]', "", dosen)
-            clean_mat = re.sub(r'[\\/*?:"<>|]', "", matkul)
-            file_foto = f"{clean_tgl}_{clean_dos}_{clean_mat}_{fasil}_Pertemuan {sesi}.jpg"
+            # --- LOGIKA SPLIT PERTEMUAN ---
+            sessions_found = re.findall(r'\d+', sesi_raw)
+            if not sessions_found: sessions_found = ['1']
+            
+            # Req Zoom: Gabungan (Tidak di-split)
+            req_zoom_combined = f"{matkul}_{sesi_raw}_{tgl_raw}_{tipe}_{dosen}_{jam}"
 
-            parsed_data.append({
-                "Tanggal": tgl_raw, "Fasilitator": fasil, "Jam": jam.replace('.', ':'),
-                "Kode Kelas": "N/A", "Mata Kuliah": matkul, "Nama Dosen": dosen,
-                "Tipe": tipe, "Sesi": sesi, "Nama File Foto": file_foto
-            })
-        except: pass
+            # Loop Split Baris Excel
+            for sess_num in sessions_found:
+                clean_tgl = tgl_raw.replace(",", "")
+                clean_dos = re.sub(r'[\\/*?:"<>|]', "", dosen)
+                clean_mat = re.sub(r'[\\/*?:"<>|]', "", matkul)
+                file_foto = f"{clean_tgl}_{clean_dos}_{clean_mat}_{fasil}_Pertemuan {sess_num}.jpg"
+
+                parsed_data.append({
+                    "Tanggal": tgl_raw, "Fasilitator": fasil, "Jam": jam,
+                    "Kode Kelas": "N/A", "Mata Kuliah": matkul, "Nama Dosen": dosen,
+                    "Tipe": tipe, 
+                    "Sesi": sess_num, # Sesi Angka (untuk sistem)
+                    "Req Zoom": req_zoom_combined, # String Req Zoom (Asli)
+                    "Nama File Foto": file_foto 
+                })
+
+        except Exception as e: pass
+
     return pd.DataFrame(parsed_data)
 
-# --- GENERATOR LAPORAN ---
-def generate_laporan_utama_sesuai_format(info, stats, filename, sks_val, role_val):
-    text_summary = (
-        f"Kelas : {info['kode']}\nJam : {info['jam_full']}\nPertemuan : {info['pertemuan']}\nTanggal : {info['tgl']}\n"
-        f"1. Total Mahasiswa Terdaftar : {stats['total']}\n2. Jumlah Mahasiswa Hadir : {stats['hadir_valid']}\n"
-        f"3. Jumlah Mengisi Form Feedback: {stats['fb_ok']}\n4. Jumlah belum mengisi form feedback: {stats['fb_no']}\n"
-        f"5. Jumlah tidak hadir : {stats['total'] - stats['hadir_valid']}"
-    )
-    data = {
-        "Tanggal Kehadiran": [info['tgl']], "Nama Dosen": [info['dosen']], "Nama Mata Kuliah": [info['matkul']],
-        "Jam Perkuliahan": [info['jam_full']], "SKS": [sks_val], "Tipe Kelas": [info['tipe']], "Sesi Kelas": [info['pertemuan']],
-        "Peran": [role_val], "Bukti Kehadiran\n(link ss zoom kelas)": [filename], "Validasi Bukti Hadir": ["Valid"],
-        "Reminder H-1": [info['rem_h1']], "Reminder H-30 menit": [info['rem_h30']], "Form Feedback": [text_summary],
-        "Waktu Report": [datetime.now().strftime("%H:%M")], "Waktu kirim PDF Feedback": ["-"],
-        "Pemenuhan Feedback": [f"{stats['pct']}%"], "Final Absen": ["Ready"]
-    }
-    return pd.DataFrame(data)
-
-def generate_checklist_sprint(info):
-    tasks = [
-        "Reminder informasi kelas kepada mahasiswa", "Reminder informasi kelas kepada dosen",
-        "Pastikan ke dosen apakah materi dishare sendiri atau dibantu", "Jika kelas cancel, jangan lupa update di Informasi Fasilitator",
-        "Jika kelas direschedule, jangan lupa update di spreadsheet", "Jika fasil berhalangan, silakan infokan ke group",
-        "Matikan proyektor, laptop, AC dan peralatan lainnya (Onsite)", "Kembalikan alat-alat pendukung ke bagian akademik (Onsite)",
-        "Reminder presensi attendance dan form feedback saat kelas berjalan", "Update informasi terkait kelas (recording Zoom, dll)",
-        "Mengisi rekap kehadiran fasilitator", "Update informasi jumlah pengisi form feedback",
-        "Mengirimkan file PDF feedback dosen", "Rekap presensi kehadiran kelas",
-        "Follow-up mahasiswa yang belum melakukan pengisian feedback"
-    ]
-    return pd.DataFrame({"Task": tasks, f"{info['kode']} - Pertemuan {info['pertemuan']}": ["TRUE"] * len(tasks)})
-
-def generate_chat_templates(info):
-    templates = [
-        {"Context": "Perkenalan", "Text": f"Halo Bapak/Ibu... kelas {info['kode']}... Materi: {info['matkul']}..."},
-        {"Context": "Reminder Kelas", "Text": f"Halo teman-teman... Materi: {info['matkul']}..."},
-        {"Context": "Reminder Dosen", "Text": f"Halo Bapak/Ibu... Materi: {info['matkul']}..."},
-        {"Context": "Kirim Feedback", "Text": f"Halo teman-teman... jangan lupa isi feedback..."}
-    ]
-    return pd.DataFrame(templates)
-
-def generate_presensi_real(db, hadir_valid_set, list_feedback, info):
-    df = db.copy()
-    col_nm = next((c for c in df.columns if 'nama' in str(c).lower()), df.columns[1])
-    col_nim = next((c for c in df.columns if 'nim' in str(c).lower()), df.columns[0])
-    df_out = df[[col_nim, col_nm]].copy()
-    df_out.columns = ['NIM', 'Nama Mahasiswa']
-    target_sessions = get_session_list(info['pertemuan'])
-    for idx, r in df_out.iterrows():
-        n = str(r['Nama Mahasiswa'])
-        code = "A"
-        if n in hadir_valid_set: code = "O" if n in list_feedback else "OF"
-        for s in target_sessions:
-            if 1 <= int(s) <= 16: df_out.loc[idx, f"Sesi {s}"] = code
-    return df_out
-
-def generate_gaji(info, fee, filename):
-    jml = len(get_session_list(info['pertemuan'])) or 1
-    return pd.DataFrame([{"Tanggal": info['tgl'], "Dosen": info['dosen'], "Matkul": info['matkul'], "Kode": info['kode'], "Sesi": info['pertemuan'], "Jml": jml, "Fee": fee, "Total": fee*jml, "Bukti": filename}])
-
+# --- STATS & EXCEL ---
 def run_analysis(info, txt_zoom, txt_onsite, db_names, df_fb):
     list_zoom = [clean_nama_zoom(x) for x in str(txt_zoom).split('\n') if len(x)>3]
     list_onsite = [clean_nama_zoom(x) for x in str(txt_onsite).split('\n') if len(x)>3]
-    hadir_zoom = set()
-    hadir_onsite = set()
-    ambig = []
+    hadir = set()
+    for z in list_zoom + list_onsite:
+        best, _ = get_best_match_info(z, db_names)
+        if best: hadir.add(best)
     
-    for z in list_zoom:
-        best, conf = get_best_match_info(z, db_names)
-        if best:
-            hadir_zoom.add(best)
-            if len(conf)>1: ambig.append({"Input":z, "Pilih":best})
-    for z in list_onsite:
-        best, conf = get_best_match_info(z, db_names)
-        if best: hadir_onsite.add(best)
-        
     final_fb = set()
     ghosts = []
     if df_fb is not None:
@@ -331,272 +310,149 @@ def run_analysis(info, txt_zoom, txt_onsite, db_names, df_fb):
                     m, _ = get_best_match_info(str(r[col_fb]), db_names)
                     if m: 
                         final_fb.add(m)
-                        if m not in hadir_zoom and m not in hadir_onsite: ghosts.append(m)
-                        
-    real_attendees = hadir_zoom.union(hadir_onsite)
-    fb_ok_count = 0
-    fb_no_list = []
-    for h in real_attendees:
-        if h in final_fb: fb_ok_count += 1
-        else: fb_no_list.append(h)
+                        if m not in hadir: ghosts.append(m)
     
-    stats = {
-        'total': len(db_names), 'hadir_valid': len(real_attendees), 'online_count': len(hadir_zoom),
-        'onsite_count': len(hadir_onsite), 'fb_ok': fb_ok_count, 'fb_no': len(fb_no_list),
-        'pct': round(fb_ok_count/len(real_attendees)*100,1) if real_attendees else 0,
-        'ghosts': ghosts, 'ambig': ambig, 'fb_no_list': fb_no_list
-    }
-    return stats, real_attendees, final_fb
+    fb_ok = 0; fb_no = []
+    for h in hadir:
+        if h in final_fb: fb_ok += 1
+        else: fb_no.append(h)
+    
+    stats = {'total': len(db_names), 'hadir_valid': len(hadir), 'online_count': len(list_zoom), 
+             'onsite_count': len(list_onsite), 'fb_ok': fb_ok, 'fb_no': len(fb_no), 
+             'pct': round(fb_ok/len(hadir)*100,1) if hadir else 0, 'ghosts': ghosts, 'fb_no_list': fb_no}
+    return stats, hadir, final_fb
+
+def generate_laporan_utama_sesuai_format(info, stats, filename, sks, role):
+    summary = f"Kelas : {info['kode']}\nJam : {info['jam_full']}\nTotal: {stats['total']}\nHadir: {stats['hadir_valid']}\nFeedback: {stats['fb_ok']}"
+    return pd.DataFrame({
+        "Tanggal": [info['tgl']], "Dosen": [info['dosen']], "Matkul": [info['matkul']], 
+        "Jam": [info['jam_full']], "Lokasi": [info['tipe_belajar']], "SKS": [sks], 
+        "Tipe": [info['tipe']], "Sesi": [info['pertemuan']], "Bukti": [filename],
+        "Hadir": [stats['hadir_valid']], "Feedback %": [f"{stats['pct']}%"], "Summary": [summary]
+    })
+
+def generate_gaji(info, fee, filename):
+    jml = len(get_session_list(info['pertemuan'])) or 1
+    return pd.DataFrame([{"Tanggal": info['tgl'], "Dosen": info['dosen'], "Matkul": info['matkul'], "Sesi": info['pertemuan'], "Fee": fee, "Total": fee*jml}])
 
 # ==========================================
-# 5. USER INTERFACE
+# 3. MAIN UI
 # ==========================================
+st.markdown('<h1 class="main-header">⚡ Admin Kelas Pro Max</h1>', unsafe_allow_html=True)
 
-st.markdown('<h1 class="main-header">⚡ Report Fasil</h1>', unsafe_allow_html=True)
-st.write("")
-
-# --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### 🎛️ Control Panel")
-    app_mode = st.radio("Pilih Mode:", ["👤 Single (Manual)", "🚀 Batch (Paste Text)", "📂 Batch (Excel Upload)", "🛠️ Buat File Batch"])
+    app_mode = st.radio("Mode:", ["👤 Single", "🚀 Batch Process", "🛠️ Buat Template"])
+    inp_tipe_belajar = st.selectbox("📍 Lokasi Belajar:", ["Online", "Onsite", "Hybrid"])
     st.markdown("---")
-    inp_rem_h1 = st.text_input("⏰ Waktu H-1", value="13.00")
-    inp_rem_h30 = st.text_input("⏰ Waktu H-30m", value="07.30")
-    st.markdown("---")
-    inp_sks = st.number_input("SKS Default", value=3)
-    inp_fee = st.number_input("Fee Default", value=150000)
-    inp_role = st.text_input("Peran", value="Fasilitator Kelas")
+    inp_rem_h1 = st.text_input("⏰ H-1", "13.00"); inp_rem_h30 = st.text_input("⏰ H-30m", "07.30")
+    inp_sks = st.number_input("SKS", 3); inp_fee = st.number_input("Fee", 150000); inp_role = st.text_input("Peran", "Fasilitator Kelas")
 
-# ==========================================
-# MODE 1: SINGLE (MANUAL) - DENGAN DATABASE EXCEL
-# ==========================================
-if app_mode == "👤 Single (Manual)":
-    
-    with st.expander("📝 Input Data Kelas (Klik untuk Buka/Tutup)", expanded=True):
+# --- MODE 1: SINGLE ---
+if app_mode == "👤 Single":
+    with st.expander("📝 Input Data Kelas", expanded=True):
         c1, c2 = st.columns(2)
         with c1:
-            inp_input_method = st.radio("Sumber:", ["Manual", "DB Excel"], horizontal=True)
-            defaults = {"jam_mulai":"00.00", "jam_full":"00:00-00:00", "matkul":"", "dosen":"", "kode":"", "tipe":["Reguler"], "fasil": "Fasil"}
-            
-            if inp_input_method == "Manual":
-                raw = st.text_area("Paste Jadwal:", height=70)
-                if raw: 
-                    parsed = parse_data_template(raw)
-                    defaults.update(parsed)
-            else:
-                up_db = st.file_uploader("Upload DB Jadwal", type=['xlsx', 'xls', 'csv'])
-                if up_db:
-                    df_db = load_data_smart(up_db)
-                    if df_db is not None:
-                        cols = df_db.columns
-                        c_lbl = next((c for c in cols if 'label' in c.lower()), None)
-                        c_mtk = next((c for c in cols if 'mata' in c.lower() or 'matkul' in c.lower()), None)
-                        c_dos = next((c for c in cols if 'dosen' in c.lower()), None)
-                        c_kod = next((c for c in cols if 'kode' in c.lower()), None)
-                        c_fas = next((c for c in cols if 'fasil' in c.lower()), None)
-                        c_jam = next((c for c in cols if 'jam' in c.lower()), None)
-                        c_tip = next((c for c in cols if 'tipe' in c.lower()), None)
-
-                        if not c_kod: c_kod = cols[3] if len(cols)>3 else cols[0]
-                        if not c_mtk: c_mtk = cols[4] if len(cols)>4 else cols[1]
-                        if not c_dos: c_dos = cols[5] if len(cols)>5 else cols[2]
-
-                        if not c_lbl:
-                            df_db['Label_Gen'] = df_db.apply(lambda x: f"{x[c_kod]} - {x[c_mtk]}", axis=1)
-                            c_lbl = 'Label_Gen'
-
-                        pilihan = st.selectbox("Pilih Kelas:", df_db[c_lbl])
-                        row = df_db[df_db[c_lbl] == pilihan].iloc[0]
-                        
-                        defaults['matkul'] = str(row[c_mtk])
-                        defaults['dosen'] = str(row[c_dos])
-                        defaults['kode'] = str(row[c_kod])
-                        if c_fas: defaults['fasil'] = str(row[c_fas])
-                        if c_jam: 
-                            jam_raw = str(row[c_jam])
-                            defaults['jam_full'] = jam_raw
-                            jm = re.search(r'\d{2}[\.:]\d{2}', jam_raw)
-                            defaults['jam_mulai'] = jm.group(0).replace(':', '.') if jm else "00.00"
-                        if c_tip: defaults['tipe'] = [t.strip() for t in str(row[c_tip]).split(',')]
-        
+            raw = st.text_area("Paste Jadwal:", height=100)
+            defaults = parse_data_template(raw) if raw else {}
         with c2:
-            i_tgl = st.text_input("Tanggal", datetime.now().strftime("%d %B %Y"))
-            i_matkul = st.text_input("Matkul", value=defaults['matkul'])
-            i_dosen = st.text_input("Dosen", value=defaults['dosen'])
-            i_fasil = st.text_input("Fasil", value=defaults['fasil'])
-            i_kode = st.text_input("Kode", value=defaults['kode'])
-            i_jam = st.text_input("Jam", value=defaults['jam_full'])
-            i_tipe = st.text_input("Tipe", value=defaults['tipe'][0])
-            i_sesi = st.text_input("Sesi", value="1")
+            i_tgl = st.text_input("Tanggal", defaults.get('jam_mulai', datetime.now().strftime("%d %B %Y")))
+            i_matkul = st.text_input("Matkul", value=defaults.get('matkul',''))
+            i_dosen = st.text_input("Dosen", value=defaults.get('dosen',''))
+            i_fasil = st.text_input("Fasil", value=defaults.get('fasil',''))
+            i_kode = st.text_input("Kode", value=defaults.get('kode',''))
+            i_jam = st.text_input("Jam", value=defaults.get('jam_full',''))
+            i_tipe = st.text_input("Tipe", value=defaults.get('tipe_str','Reguler'))
+            i_sesi = st.text_input("Sesi (String)", value=defaults.get('pertemuan_str','Pertemuan 1'))
+            
+            # Helper Output
+            req_zoom_out = f"{i_matkul}_{i_sesi}_{i_tgl}_{i_tipe}_{i_dosen}_{i_jam}"
+            clean_tgl = i_tgl.replace(",", "")
+            clean_dos = re.sub(r'[\\/*?:"<>|]', "", i_dosen)
+            clean_mat = re.sub(r'[\\/*?:"<>|]', "", i_matkul)
+            sesi_num = re.search(r'\d+', i_sesi).group(0) if re.search(r'\d+', i_sesi) else "1"
+            file_foto_out = f"{clean_tgl}_{clean_dos}_{clean_mat}_{i_fasil}_Pertemuan {sesi_num}.jpg"
 
-            info = {"tgl":i_tgl, "matkul":i_matkul, "dosen":i_dosen, "kode":i_kode, "jam_full":i_jam, "tipe":i_tipe, "pertemuan":i_sesi, "fasil":i_fasil, "rem_h1": inp_rem_h1, "rem_h30": inp_rem_h30}
+    st.info("📋 **Output Helper**")
+    c_out1, c_out2 = st.columns(2)
+    c_out1.text_input("🅰️ Req Zoom", value=req_zoom_out)
+    c_out2.text_input("🅱️ Nama File Foto", value=file_foto_out)
 
     c_ocr, c_file = st.columns([1, 1.2])
     with c_ocr:
-        st.info("📸 **Zoom Scan (OCR)**")
+        st.write("📸 **Bukti Kehadiran**")
         up_img = st.file_uploader("Upload Foto", type=['jpg','png'])
-        txt_ocr = extract_text_from_image(up_img) if up_img else ""
-        txt_zoom = st.text_area("List Zoom:", value=txt_ocr, height=100)
-        st.info("🙋‍♂️ **Onsite Manual**")
-        txt_onsite = st.text_area("List Onsite:", height=80)
+        txt_zoom = st.text_area("List Zoom (OCR):", value=extract_text_from_image(up_img) if up_img else "", height=100)
+        txt_onsite = st.text_area("List Onsite (Manual):", height=80)
     with c_file:
-        st.warning("📂 **File Master**")
-        file_master = st.file_uploader("Master Mahasiswa (Wajib)", type=['xlsx', 'csv'])
-        file_fb = st.file_uploader("Feedback (Opsional)", type=['xlsx', 'xls', 'csv'])
+        st.write("📂 **Database**")
+        up_master = st.file_uploader("Master Mhs", type=['xlsx','csv']); up_fb = st.file_uploader("Feedback", type=['xlsx','csv'])
 
     if st.button("🚀 PROSES DATA"):
-        if not file_master: st.error("Master Wajib Ada"); st.stop()
+        if not up_master: st.error("Master Wajib!"); st.stop()
+        info = {"tgl":i_tgl, "matkul":i_matkul, "dosen":i_dosen, "kode":i_kode, "jam_full":i_jam, "pertemuan":i_sesi, "tipe":i_tipe, "tipe_belajar":inp_tipe_belajar, "rem_h1":inp_rem_h1, "rem_h30":inp_rem_h30}
+        db = load_data_smart(up_master); db_names = db[next((c for c in db.columns if 'nama' in c.lower()), db.columns[1])].astype(str).tolist()
+        df_fb_data = load_data_smart(up_fb) if up_fb else None
         
-        db = load_data_smart(file_master)
-        col_nm = next((c for c in db.columns if 'nama' in str(c).lower()), None)
-        db_names = db[col_nm].astype(str).tolist()
-        df_fb_data = load_data_smart(file_fb) if file_fb else None
-        
-        stats, real_attendees, final_fb = run_analysis(info, txt_zoom, txt_onsite, db_names, df_fb_data)
-        file_bukti = f"{info['tgl']}_{info['dosen']}_{info['matkul']}_{info['fasil']}_Pertemuan {info['pertemuan']}"
-
+        stats, hadir, _ = run_analysis(info, txt_zoom, txt_onsite, db_names, df_fb_data)
         st.markdown("---")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Hadir Valid", f"{stats['hadir_valid']}/{stats['total']}")
-        m2.metric("Online/Onsite", f"{stats['online_count']} / {stats['onsite_count']}")
-        m3.metric("Belum Feedback", stats['fb_no'], delta_color="inverse")
-        m4.metric("Fee Estimasi", f"Rp {inp_fee * len(get_session_list(info['pertemuan'])):,.0f}")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Hadir", stats['hadir_valid']); c2.metric("No Feedback", stats['fb_no']); c3.metric("Fee", f"Rp {inp_fee * len(get_session_list(i_sesi)):,.0f}")
         
-        if stats['ghosts']: st.info(f"ℹ️ Ghost (Isi Feedback tapi Gak Hadir): {', '.join(stats['ghosts'])}")
-        
-        # --- PERBAIKAN SINTAKS DI SINI ---
         if stats['fb_no_list']: 
-            with st.expander("📢 List Belum Feedback"): 
-                st.code("\n".join(stats['fb_no_list']))
+            with st.expander("📢 Belum Feedback"): st.code("\n".join(stats['fb_no_list']))
 
-        t1, t2, t3, t4, t5 = st.tabs(["Laporan", "Checklist", "Chat", "Presensi", "Gaji"])
-        with t1:
-            df = generate_laporan_utama_sesuai_format(info, stats, f"{file_bukti}.jpg", inp_sks, inp_role)
-            st.dataframe(df)
-            st.download_button("Download", to_excel_download(df), f"Laporan_{info['kode']}.xlsx")
-        with t2:
-            df = generate_checklist_sprint(info)
-            st.dataframe(df)
-            st.download_button("Download", to_excel_download(df), "Checklist.xlsx")
-        with t3:
-            df = generate_chat_templates(info)
-            st.dataframe(df)
-        with t4:
-            df = generate_presensi_real(db, real_attendees, final_fb, info)
-            st.dataframe(df)
-            st.download_button("Download", to_excel_download(df), "Presensi.xlsx")
-        with t5:
-            df = generate_gaji(info, inp_fee, f"{file_bukti}.jpg")
-            st.dataframe(df)
-            st.download_button("Download", to_excel_download(df), "Gaji.xlsx")
+        df_out = generate_laporan_utama_sesuai_format(info, stats, file_foto_out, inp_sks, inp_role)
+        st.download_button("Download Laporan", to_excel_download(df_out), f"Laporan_{i_kode}.xlsx")
 
-# ==========================================
-# MODE 2: BATCH (PASTE TEXT)
-# ==========================================
-elif app_mode == "🚀 Batch (Paste Text)":
-    st.markdown("### 📋 Batch Mode: Paste Text")
-    raw_batch = st.text_area("Paste Data:", height=150, placeholder="Contoh: Anisa MufidaSenin, 08 September 2025...")
-    if 'batch_df' not in st.session_state: st.session_state.batch_df = None
+# --- MODE 2: BATCH ---
+elif app_mode == "🚀 Batch Process":
+    batch_src = st.radio("Sumber:", ["Paste Text", "Upload Excel"], horizontal=True)
+    if batch_src == "Paste Text":
+        raw_batch = st.text_area("Paste Data:", height=100)
+        if st.button("Parse"): st.session_state.batch_df = parse_random_batch_text(raw_batch)
+    else:
+        up_batch = st.file_uploader("Upload Excel", type=['xlsx'])
+        if up_batch: st.session_state.batch_df = load_data_smart(up_batch)
 
-    if st.button("🔍 Parse Text ke Tabel"):
-        if raw_batch:
-            st.session_state.batch_df = parse_random_batch_text(raw_batch)
-            st.success(f"Berhasil: {len(st.session_state.batch_df)} baris data.")
-
-    if st.session_state.batch_df is not None:
-        edited_batch_df = st.data_editor(st.session_state.batch_df, num_rows="dynamic")
-        st.write("### 📤 Upload Files")
+    if 'batch_df' in st.session_state:
+        df_proc = st.data_editor(st.session_state.batch_df, num_rows="dynamic")
+        st.write("### 📤 Pendukung")
         c1, c2 = st.columns(2)
-        with c1:
-            up_imgs = st.file_uploader("Upload SEMUA Foto", type=['jpg','png'], accept_multiple_files=True)
-        with c2:
-            up_master = st.file_uploader("Master Mahasiswa", type=['xlsx', 'csv'])
-            up_fb = st.file_uploader("Feedback Data", type=['xlsx', 'xls', 'csv'])
-
-        if st.button("⚡ JALANKAN BATCH"):
-            if not (up_master and up_imgs): st.error("Master & Foto Wajib!"); st.stop()
-            db = load_data_smart(up_master)
-            col_nm = next((c for c in db.columns if 'nama' in str(c).lower()), None)
-            db_names = db[col_nm].astype(str).tolist()
+        up_imgs = c1.file_uploader("Foto Bukti", type=['jpg','png'], accept_multiple_files=True)
+        up_master = c2.file_uploader("Master Mhs", type=['xlsx']); up_fb = c2.file_uploader("Feedback", type=['xlsx'])
+        
+        if st.button("⚡ JALANKAN BATCH") and up_master and up_imgs:
+            db = load_data_smart(up_master); db_names = db[next((c for c in db.columns if 'nama' in c.lower()), db.columns[1])].astype(str).tolist()
             df_fb_data = load_data_smart(up_fb) if up_fb else None
             img_map = {f.name: f for f in up_imgs}
-            res_laporan, res_gaji = [], []
-            progress = st.progress(0)
-            for idx, row in edited_batch_df.iterrows():
-                info = {
-                    "tgl": str(row['Tanggal']), "matkul": str(row['Mata Kuliah']), 
-                    "dosen": str(row['Nama Dosen']), "kode": str(row.get('Kode Kelas', 'N/A')),
-                    "jam_full": str(row['Jam']), "pertemuan": str(row['Sesi']),
-                    "fasil": str(row['Fasilitator']), "tipe": str(row['Tipe']),
-                    "rem_h1": inp_rem_h1, "rem_h30": inp_rem_h30
-                }
-                target_img = str(row['Nama File Foto'])
-                txt_zoom = extract_text_from_image(img_map[target_img]) if target_img in img_map else ""
+            res = []; res_gaji = []; prog = st.progress(0)
+            
+            for idx, row in df_proc.iterrows():
+                # Flexible Column Getter
+                def g(k, d=''): return str(row.get(next((c for c in df_proc.columns if k.lower() in c.lower()), None), d))
+                
+                info = {"tgl":g('tanggal'), "matkul":g('mata'), "dosen":g('dosen'), "kode":g('kode','N/A'), "jam_full":g('jam'), 
+                        "pertemuan":g('sesi'), "tipe":g('tipe'), "tipe_belajar":inp_tipe_belajar, "rem_h1":inp_rem_h1, "rem_h30":inp_rem_h30}
+                t_img = g('foto', g('file'))
+                
+                txt_zoom = extract_text_from_image(img_map[t_img]) if t_img in img_map else ""
                 stats, _, _ = run_analysis(info, txt_zoom, "", db_names, df_fb_data)
-                res_laporan.append(generate_laporan_utama_sesuai_format(info, stats, target_img, inp_sks, inp_role))
-                res_gaji.append(generate_gaji(info, inp_fee, target_img))
-                progress.progress((idx + 1) / len(edited_batch_df))
-            st.success("✅ Batch Selesai!")
-            c1, c2 = st.columns(2)
-            c1.download_button("📥 Laporan Gabungan", to_excel_download(pd.concat(res_laporan)), "Batch_Laporan.xlsx")
-            c2.download_button("📥 Rekap Gaji", to_excel_download(pd.concat(res_gaji)), "Batch_Gaji.xlsx")
+                
+                res.append(generate_laporan_utama_sesuai_format(info, stats, t_img, inp_sks, inp_role))
+                res_gaji.append(generate_gaji(info, inp_fee, t_img))
+                prog.progress((idx+1)/len(df_proc))
+            
+            st.success("Selesai!")
+            st.download_button("Download Laporan Gabungan", to_excel_download(pd.concat(res)), "Batch_Laporan.xlsx")
+            st.download_button("Download Gaji", to_excel_download(pd.concat(res_gaji)), "Batch_Gaji.xlsx")
 
-# ==========================================
-# MODE 3: BATCH (EXCEL UPLOAD)
-# ==========================================
-elif app_mode == "📂 Batch (Excel Upload)":
-    st.info("Upload File Excel Batch. Kolom Wajib: Tanggal, Mata Kuliah, Nama Dosen, Kode Kelas, Jam, Sesi, Fasilitator, Tipe, Nama File Foto")
-    up_batch = st.file_uploader("1. Upload 'Jadwal_Batch.xlsx'", type=['xlsx'])
-    up_master = st.file_uploader("2. Upload Master Mahasiswa", type=['xlsx'])
-    up_fb = st.file_uploader("3. Upload Feedback", type=['xlsx', 'csv'])
-    up_imgs = st.file_uploader("4. Upload SEMUA FOTO", type=['jpg','png'], accept_multiple_files=True)
-    
-    if st.button("🚀 JALANKAN BATCH EXCEL"):
-        if not (up_batch and up_master and up_imgs): st.error("File tidak lengkap!"); st.stop()
-        df_batch = load_data_smart(up_batch)
-        db = load_data_smart(up_master)
-        col_nm = next((c for c in db.columns if 'nama' in str(c).lower()), None)
-        db_names = db[col_nm].astype(str).tolist()
-        df_fb_data = load_data_smart(up_fb) if up_fb else None
-        img_map = {f.name: f for f in up_imgs}
-        res_laporan, res_gaji = [], []
-        progress = st.progress(0)
-        for idx, row in df_batch.iterrows():
-            c_tgl = next((c for c in df_batch.columns if 'tanggal' in c.lower()), df_batch.columns[0])
-            c_img = next((c for c in df_batch.columns if 'foto' in c.lower()), df_batch.columns[-1])
-            info = {
-                "tgl": str(row.get(c_tgl, '')), "matkul": str(row.get(next((c for c in df_batch.columns if 'mata' in c.lower()), ''), '')),
-                "dosen": str(row.get(next((c for c in df_batch.columns if 'dosen' in c.lower()), ''), '')),
-                "kode": str(row.get(next((c for c in df_batch.columns if 'kode' in c.lower()), ''), '')),
-                "jam_full": str(row.get(next((c for c in df_batch.columns if 'jam' in c.lower()), ''), '')),
-                "pertemuan": str(row.get(next((c for c in df_batch.columns if 'sesi' in c.lower()), ''), '')),
-                "fasil": str(row.get(next((c for c in df_batch.columns if 'fasil' in c.lower()), ''), '')),
-                "tipe": str(row.get(next((c for c in df_batch.columns if 'tipe' in c.lower()), ''), '')),
-                "rem_h1": inp_rem_h1, "rem_h30": inp_rem_h30
-            }
-            target_img = str(row.get(c_img, ''))
-            txt_zoom = extract_text_from_image(img_map[target_img]) if target_img in img_map else ""
-            stats, _, _ = run_analysis(info, txt_zoom, "", db_names, df_fb_data)
-            res_laporan.append(generate_laporan_utama_sesuai_format(info, stats, target_img, inp_sks, inp_role))
-            res_gaji.append(generate_gaji(info, inp_fee, target_img))
-            progress.progress((idx + 1) / len(df_batch))
-        st.success("✅ Batch Selesai!")
-        c1, c2 = st.columns(2)
-        c1.download_button("📥 Laporan Gabungan", to_excel_download(pd.concat(res_laporan)), "Batch_Laporan.xlsx")
-        c2.download_button("📥 Rekap Gaji", to_excel_download(pd.concat(res_gaji)), "Batch_Gaji.xlsx")
-
-# ==========================================
-# MODE 4: BUAT FILE BATCH (HELPER)
-# ==========================================
-elif app_mode == "🛠️ Buat File Batch":
-    st.header("🛠️ Buat File Batch")
-    st.subheader("1. Paste Data Acak")
-    raw_text = st.text_area("Paste jadwal gancet disini:", height=100)
-    if st.button("Parsing ke Tabel"):
-        if raw_text:
-            st.session_state.batch_data = parse_random_batch_text(raw_text)
-            st.success("Berhasil di-parse!")
-    if 'batch_data' not in st.session_state: st.session_state.batch_data = pd.DataFrame(columns=["Tanggal", "Fasilitator", "Jam", "Kode Kelas", "Mata Kuliah", "Nama Dosen", "Tipe", "Sesi", "Nama File Foto"])
-    st.subheader("2. Edit Tabel Batch")
-    edited_df = st.data_editor(st.session_state.batch_data, num_rows="dynamic")
-    if not edited_df.empty: st.download_button("📥 Download Excel Batch", to_excel_download(edited_df), "Jadwal_Batch.xlsx")
+# --- MODE 3: TEMPLATE ---
+elif app_mode == "🛠️ Buat Template":
+    st.write("Paste teks gancet untuk bikin Excel Batch siap pakai.")
+    raw = st.text_area("Text:"); 
+    if st.button("Convert"):
+        df = parse_random_batch_text(raw)
+        st.dataframe(df)
+        st.download_button("Download Excel", to_excel_download(df), "Template_Batch.xlsx")
+        
